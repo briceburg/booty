@@ -1,18 +1,17 @@
 #!/usr/bin/env shell-helpers
 
 gnupg(){
-  MASTER_KEY_ID="${MASTER_KEY_ID:-2E543DCEBC9A6B971510A9A0D0532DD2254E4188}"
   gnupg/$BOOTY_DISTRO
 
-  p/log "import brice@iceburg.net public key ($MASTER_KEY_ID)"
-  gpg --recv-keys "$MASTER_KEY_ID"
+  p/log "import brice@iceburg.net public key ($GPG_PUBKEY)"
+  gpg --recv-keys "$GPG_PUBKEY"
 
-  p/log "import $MASTER_KEY_ID 'laptop' subkeys"
+  p/log "import $GPG_PUBKEY 'laptop' subkeys"
   gnupg/import "$BOOTY_TMPDIR/master.subkeys"
 
   gnupg/gpg-agent
 
-  p/log "import $MASTER_KEY_ID secret key"
+  p/log "import $GPG_PUBKEY secret key"
   prompt/confirm "continue importing MASTER KEY? usually no." || return 0
   gnupg/import "$BOOTY_TMPDIR/master.key"
 }
@@ -60,7 +59,7 @@ gnupg/gpg-agent(){
                    'gpg-connect-agent updatestartuptty /bye >/dev/null' "$HOME/.bashrc"
 
   p/log "add authentication key to gpg-agent"
-  AUTHKEY_KEYGRIP="${AUTHKEY_KEYGRIP:-$(gpg --with-keygrip -k $MASTER_KEY_ID | grep -A1 -B0 '\[A\]' | tail -n1 |  awk '{print $NF}')}"
+  AUTHKEY_KEYGRIP="${AUTHKEY_KEYGRIP:-$(gpg --with-keygrip -k $GPG_PUBKEY | grep -A1 -B0 '\[A\]' | tail -n1 |  awk '{print $NF}')}"
   file/interpolate "^$AUTHKEY_KEYGRIP.*$" "$AUTHKEY_KEYGRIP" "$HOME/.gnupg/sshcontrol"
 
   p/log "reload gpg-agent"
