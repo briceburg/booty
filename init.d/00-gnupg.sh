@@ -3,15 +3,15 @@
 gnupg(){
   gnupg/$BOOTY_DISTRO
 
-  p/log "import brice@iceburg.net public key ($GPG_PUBKEY)"
+  p/log "gnupg: import brice@iceburg.net public key ($GPG_PUBKEY)"
   gpg --recv-keys "$GPG_PUBKEY"
 
-  p/log "import $GPG_PUBKEY 'laptop' subkeys"
+  p/log "gnupg: import $GPG_PUBKEY 'laptop' subkeys"
   gnupg/import "$BOOTY_TMPDIR/master.subkeys"
 
   gnupg/gpg-agent
 
-  p/log "import $GPG_PUBKEY secret key"
+  p/log "gnupg: import $GPG_PUBKEY secret key"
   prompt/confirm "continue importing MASTER KEY? usually no." || return 0
   gnupg/import "$BOOTY_TMPDIR/master.key"
 }
@@ -40,7 +40,7 @@ gnupg/import(){
 
 
 gnupg/gpg-agent(){
-  p/log "configure gpg-agent as ssh-agent"
+  p/log "gnupg: configure gpg-agent as ssh-agent"
   file/interpolate '^enable-ssh-support.*$' \
                    'enable-ssh-support' "$HOME/.gnupg/gpg-agent.conf"
   file/interpolate '^max-cache-ttl.*$' \
@@ -58,12 +58,10 @@ gnupg/gpg-agent(){
   file/interpolate '^gpg-connect-agent updatestartuptty.*$' \
                    'gpg-connect-agent updatestartuptty /bye >/dev/null' "$HOME/.bashrc"
 
-  p/log "add authentication key to gpg-agent"
+  p/log "gnupg: add authentication key to gpg-agent"
   AUTHKEY_KEYGRIP="${AUTHKEY_KEYGRIP:-$(gpg --with-keygrip -k $GPG_PUBKEY | grep -A1 -B0 '\[A\]' | tail -n1 |  awk '{print $NF}')}"
   file/interpolate "^$AUTHKEY_KEYGRIP.*$" "$AUTHKEY_KEYGRIP" "$HOME/.gnupg/sshcontrol"
 
-  p/log "reload gpg-agent"
+  p/log "gnupg: reload gpg-agent"
   gpg-connect-agent reloadagent /bye
-
-  p/log "export ~/.ssh/gpg-agent-keys.pub (for use as authorized keys)"
 }
