@@ -66,6 +66,4 @@ gnupg/gpg-agent(){
   gpg-connect-agent reloadagent /bye
 
   p/log "export ~/.ssh/gpg-agent-keys.pub (for use as authorized keys)"
-  [ -d "$HOME/.ssh" ] || { mkdir "$HOME/.ssh"; chmod 0700 "$HOME/.ssh" ;}
-  ssh-add -L > "$HOME/.ssh/gpg-agent-keys.pub"
 }
