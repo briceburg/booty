@@ -3,6 +3,7 @@
 # defaults
 readonly BOOTY_ROOT="$(cd "$(dirname ${BASH_SOURCE[0]})/../" ; pwd -P )"
 BOOTY_TMPDIR="${BOOTY_TMPDIR:-$BOOTY_ROOT/tmp}"
+BOOTY_DISTRO="${BOOTY_DIST:-archlinux}"
 
 [ -d "$BOOTY_TMPDIR" ] || mkdir -p "$BOOTY_TMPDIR" || die "TMPDIR: $BOOTY_TMPDIR must be a directory"
 [ -w "$BOOTY_TMPDIR" ] || die "TMPDIR: $BOOTY_TMPDIR is not writable"

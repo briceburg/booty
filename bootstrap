@@ -28,7 +28,7 @@ bootstrap/archlinux(){
     git
     tk
   )
-  sudo pacman --noconfirm -S ${pkgs[@]}
+  sudo pacman --noconfirm -Sy ${pkgs[@]}
 }
 
 main "$@"
