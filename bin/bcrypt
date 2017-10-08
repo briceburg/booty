@@ -1,0 +1,42 @@
+#!/usr/bin/env shell-helpers
+
+# bcrypt - simple obfuscation through xor
+#          NOT safe for cryptographic use.
+# @requires shell-helpers (https://github.com/briceburg/shell-helpers)
+#
+# example usage:
+#   cat source.txt | bcrypt > source.txt.crypt
+#   cat source.txt.crypt | bcrypt > source.txt.decrypted
+#   diff source.txt source.txt.decrypted || echo "there was an error!"
+
+crypt(){
+  [ -n "$1" ] || die "please provide input stdin or through arguments"
+
+  header="${BCRYPT_HEADER:-"~bCryPt~"}"
+  if [ "${1:0:${#header}}" = "$header" ]; then
+    cint="$(( ${1:${#header}:2} / 3))"
+    set -- "${1:$((${#header} + 2))}"
+    xor "$1" "$cint" | base64 -d
+  else
+    # select a random cint and print header
+    cints=( 21 22 23 24 25 26 27 28 29 30 31 )
+    cint=${cints[$RANDOM % ${#cints[@]}]}
+    printf "${header}$(( $cint * 3 ))"
+    xor "$(echo "$1" | base64)" "$cint" $encode
+  fi
+}
+
+xor(){
+  input="$1"
+  cint="${2:-31}"
+  output=""
+  for ((i=0; i<${#1}; i++)); do
+    printf -v ord "%d" "'${input:$i:1}"
+    printf -v tmp '%03o' "$((ord ^ $cint))"
+    printf -v tmp "\\$tmp"
+    output+="$tmp"
+  done
+  echo "$output"
+}
+
+crypt "$(io/cat $@)"
