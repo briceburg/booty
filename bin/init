@@ -10,6 +10,7 @@ main(){
   . "$SCRIPT_CWD/../lib/common.sh" || die "missing common library"
 
   p/shout "\e[1mbooty\e[21m initializer at your service..."
+  p/comment "DISTRO: ${BOOTY_DISTRO:=archlinux}"
   p/comment "TMPDIR: $BOOTY_TMPDIR"
 
   for script in "$BOOTY_ROOT/init.d/"*.sh; do
@@ -24,7 +25,7 @@ main(){
         continue
       }
     fi
-    
+
     . "$script"
     run "${fn:-$name}" "${desc:-"$name ($priority)"}"
   done
