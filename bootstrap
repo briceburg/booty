@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+
+BOOTY_REPO="${BOOTY_REPO:-git@github.com:briceburg/booty.git}"
+BOOTY_DISTRO="${BOOTY_DISTRO:-archlinux}"
+
+main(){
+  set -eo pipefail
+  [ $EUID -gt 0 ] || { echo >&2 "please execute as a regular user" ; exit 1 ; }
+
+  bootstrap/$BOOTY_DISTRO
+  bootstrap/common
+
+  [ -d "$HOME/git" ] || mkdir -p "$HOME/git"
+  [ -d "$HOME/git/booty" ] || git clone -C "$HOME/git" $BOOTY_REPO
+  cd "$HOME/git/booty"
+  bin/init
+}
+
+bootstrap/common(){
+  sudo bash -c "curl -L http://get.iceburg.net/shell-helpers/latest-v2/shell-helpers > \
+    /usr/local/bin/shell-helpers && chmod +x /usr/local/bin/shell-helpers"
+}
+
+bootstrap/archlinux(){
+  local pkgs=(
+    acpi
+    curl
+    git
+    tk
+  )
+  sudo pacman --noconfirm -S ${pkgs[@]}
+}
+
+main "$@"
