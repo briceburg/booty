@@ -24,6 +24,7 @@ bootstrap/common(){
 bootstrap/archlinux(){
   local pkgs=(
     acpi
+    base-devel
     curl
     git
     openssh
