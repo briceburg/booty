@@ -1,6 +1,6 @@
 #!/usr/bin/env shell-helpers
 
-init/00-gnupg(){
+gnupg(){
   MASTER_KEY_ID="${MASTER_KEY_ID:-2E543DCEBC9A6B971510A9A0D0532DD2254E4188}"
   gnupg/$BOOTY_DISTRO
 

@@ -15,9 +15,9 @@ main(){
   for script in "$BOOTY_ROOT/init.d/"*.sh; do
     fn=
     desc=
-    basename="$(basename "$script" .sh)"
+    IFS="-" read priority name <<< "$(basename "$script" .sh)"
     . "$script"
-    run "${fn:-init/$basename}" "${desc:-$basename}"
+    run "${fn:-$name}" "${desc:-"$name ($priority)"}"
   done
 }
 
