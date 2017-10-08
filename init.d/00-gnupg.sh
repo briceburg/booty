@@ -44,6 +44,8 @@ gnupg/gpg-agent(){
   p/log "configure gpg-agent as ssh-agent"
   file/interpolate '^enable-ssh-support.*$' \
                    'enable-ssh-support' "$HOME/.gnupg/gpg-agent.conf"
+  file/interpolate '^max-cache-ttl.*$' \
+                   'max-cache-ttl 10800' "$HOME/.gnupg/gpg-agent.conf"
   file/interpolate '^default-cache-ttl.*$' \
                    'default-cache-ttl 10800' "$HOME/.gnupg/gpg-agent.conf"
 
