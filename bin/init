@@ -16,6 +16,15 @@ main(){
     fn=
     desc=
     IFS="-" read priority name <<< "$(basename "$script" .sh)"
+
+    if [[ $# -gt 0 ]]; then
+      # filters passed via command line
+      is/matching "$name" "$@" || {
+        p/warn "skipping $name"
+        continue
+      }
+    fi
+    
     . "$script"
     run "${fn:-$name}" "${desc:-"$name ($priority)"}"
   done
