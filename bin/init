@@ -1,0 +1,24 @@
+#!/usr/bin/env shell-helpers
+main(){
+  set -eo pipefail
+  local path="${BASH_SOURCE[0]}"
+  while [ -L "$path" ] ; do path="$(readlink "$path")" ; done
+  readonly CWD="$( pwd -P )"
+  readonly SCRIPT_CWD="$( cd $(dirname ${path}) ; pwd -P )"
+  readonly SCRIPT_ENTRYPOINT="$0 $@"
+
+  . "$SCRIPT_CWD/../lib/common.sh" || die "missing common library"
+
+  p/shout "\e[1mbooty\e[21m initializer at your service..."
+  p/comment "TMPDIR: $BOOTY_TMPDIR"
+
+  for script in "$BOOTY_ROOT/init.d/"*.sh; do
+    fn=
+    desc=
+    basename="$(basename "$script" .sh)"
+    . "$script"
+    run "${fn:-init/$basename}" "${desc:-$basename}"
+  done
+}
+
+main "$@"
