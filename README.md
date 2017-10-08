@@ -10,8 +10,12 @@ briceburg's bootstrap
 KEYID="Master Key ID"
 gpg -a --export "$KEYID!" > master.key.pub
 gpg -a --export-secret-keys "$KEYID!" > master.key
+gpg -a --export-secret-subkeys "$KEYID" > master.subkeys
 
-cat master.key | ~/bin/bcrypt > master.key.crypt
+cat master.key | ../bin/bcrypt > master.key.crypt
+split -n3 -a1 --numeric-suffixes=1 master.key.crypt master.key.crypt.
+
+cat master.subkeys | ../bin/bcrypt > master.subkeys.crypt
 split -n3 -a1 --numeric-suffixes=1 master.key.crypt master.key.crypt.
 
 # distribute master.key.crypt.[1-3]
