@@ -26,6 +26,7 @@ bootstrap/archlinux(){
     acpi
     curl
     git
+    openssh
     tk
   )
   sudo pacman --noconfirm -Sy ${pkgs[@]}
