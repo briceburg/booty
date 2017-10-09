@@ -29,6 +29,8 @@ main(){
     . "$script"
     run "${fn:-$name}" "${desc:-"$name ($priority)"}"
   done
+
+  p/shout "initializers finished" "It's a good idea to restart your shell"
 }
 
 main "$@"
