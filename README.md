@@ -1,8 +1,13 @@
 # booty
 briceburg's bootstrap
 
-
 ## notes
+
+#### client bootstrap
+
+```sh
+curl https://raw.githubusercontent.com/briceburg/booty/master/bootstrap | bash
+```
 
 #### gpg key encryption
 
