@@ -6,9 +6,14 @@ gnupg(){
   p/log "gnupg: import brice@iceburg.net public key ($GPG_PUBKEY)"
   gpg --recv-keys "$GPG_PUBKEY"
 
+  # set trustlevel to ultimate
+  gpg -k "$GPG_PUBKEY" | grep -A1 -B0 "$GPG_PUBKEY" | tail -n1 | grep -q 'ultimate' || \
+    expect -c "spawn gpg --edit-key $GPG_PUBKEY trust quit; send \"5\ry\r\"; expect eof"
+
   p/log "gnupg: import $GPG_PUBKEY 'laptop' subkeys"
   gnupg/import "$BOOTY_TMPDIR/master.subkeys"
 
+  p/log "gnupg: configure gpg-agent as ssh-agent"
   gnupg/gpg-agent
 
   p/log "gnupg: import $GPG_PUBKEY secret key"
@@ -18,6 +23,7 @@ gnupg(){
 
 gnupg/archlinux(){
   pkgs=(
+    expect
     gnupg
     libgcrypt
   )
@@ -40,7 +46,6 @@ gnupg/import(){
 
 
 gnupg/gpg-agent(){
-  p/log "gnupg: configure gpg-agent as ssh-agent"
   file/interpolate '^enable-ssh-support.*$' \
                    'enable-ssh-support' "$HOME/.gnupg/gpg-agent.conf"
   file/interpolate '^max-cache-ttl.*$' \
