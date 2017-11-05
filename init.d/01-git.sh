@@ -26,6 +26,7 @@ git/archlinux(){
   pkgs=(
     git
     python-docutils
+    tk
   )
   sudo pacman --noconfirm -S ${pkgs[@]}
 }
