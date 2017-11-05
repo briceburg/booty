@@ -10,7 +10,8 @@ xorg(){
 xorg/archlinux(){
   pkgs=(
     acpi
-    chromium
+    dmenu
+    gtk3
     xmonad
     xmonad-contrib
     xorg-apps
