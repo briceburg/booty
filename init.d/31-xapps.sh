@@ -7,6 +7,7 @@ xapps(){
 xapps/archlinux(){
   pkgs=(
     chromium
+    firefox-developer-edition
     gnome-themes-standard
     gpick
     lxappearance
@@ -14,7 +15,6 @@ xapps/archlinux(){
     redshift
     rxvt-unicode
     rxvt-unicode-terminfo
-    thunderbird
     xterm
   )
 
