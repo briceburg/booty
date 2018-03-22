@@ -23,7 +23,7 @@ xorg/archlinux(){
 
   case "$BOOTY_ENV" in
     hartford)
-      pkgs+=( xf86-video-amdgpu mesa-vdpau ) ;;
+      pkgs+=( xf86-video-amdgpu libva-mesa-driver ) ;;
     toshiba)
       pkgs+=( xf86-video-intel ) ;;
     *)
