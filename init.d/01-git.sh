@@ -12,7 +12,7 @@ init/git()(
 
   p/log "git: support encrypted remotes via git-remote-gcrypt"
   [ -d "$BOOTY_GITDIR/git-remote-gcrypt" ] || \
-    git -C "$BOOTY_GITDIR" clone git@github.com:spwhitton/git-remote-gcrypt.git
+    git -C "$BOOTY_GITDIR" clone https://github.com/spwhitton/git-remote-gcrypt.git
 
   cd "$BOOTY_GITDIR/git-remote-gcrypt"
   sudo DESTDIR= prefix="/usr" ./install.sh && {
