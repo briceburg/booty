@@ -1,7 +1,7 @@
 #!/usr/bin/env shell-helpers
 
 atom(){
-  xapps/$BOOTY_DISTRO
+  atom/$BOOTY_DISTRO
 
   apm install package-sync
 }

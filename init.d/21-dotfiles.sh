@@ -6,7 +6,7 @@ dotfiles()(
 
   p/log "dotfiles: ensure 'gitbooty' alias"
   file/interpolate '^alias gitbooty=.*$' \
-    "alias gitbooty='/usr/bin/git --git-dir=\"$dir\" --work-tree=\"$HOME\"'" "$HOME/.bashrc"
+    "alias gitbooty='/usr/bin/git --git-dir=\"$dir/\" --work-tree=\"$HOME\"'" "$HOME/.bashrc"
 
   file/interpolate '^/.gitbooty$' \
     '/.gitbooty' "$HOME/.gitignore"
@@ -21,5 +21,5 @@ dotfiles()(
 )
 
 gitbooty(){
-  git --git-dir="$dir" --work-tree="$HOME" "$@"
+  git --git-dir="$dir/" --work-tree="$HOME" "$@"
 }

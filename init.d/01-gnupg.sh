@@ -48,18 +48,22 @@ gnupg/import(){
 gnupg/gpg-agent(){
   file/interpolate '^enable-ssh-support.*$' \
                    'enable-ssh-support' "$HOME/.gnupg/gpg-agent.conf"
+
   file/interpolate '^max-cache-ttl.*$' \
                    'max-cache-ttl 10800' "$HOME/.gnupg/gpg-agent.conf"
+
   file/interpolate '^default-cache-ttl.*$' \
                    'default-cache-ttl 10800' "$HOME/.gnupg/gpg-agent.conf"
 
-  file/interpolate '^SSH_AGENT_PID.*$' \
-                   'SSH_AGENT_PID	DEFAULT=' "$HOME/.pam_environment"
-  file/interpolate '^default-cache-ttl.*$' \
-                   'SSH_AUTH_SOCK	DEFAULT="${XDG_RUNTIME_DIR}/gnupg/S.gpg-agent.ssh' "$HOME/.pam_environment"
+  file/interpolate '^export SSH_AGENT_PID=.*$' \
+                   'export SSH_AGENT_PID=' "$HOME/.bashrc"
+
+  file/interpolate '^export SSH_AUTH_SOCK=.*$' \
+                   'export SSH_AUTH_SOCK="${XDG_RUNTIME_DIR}/gnupg/S.gpg-agent.ssh"' "$HOME/.bashrc"
 
   file/interpolate '^export GPG_TTY=.*$' \
                    'export GPG_TTY=$(tty)' "$HOME/.bashrc"
+
   file/interpolate '^gpg-connect-agent updatestartuptty.*$' \
                    'gpg-connect-agent updatestartuptty /bye >/dev/null' "$HOME/.bashrc"
 
@@ -69,4 +73,6 @@ gnupg/gpg-agent(){
 
   p/log "gnupg: reload gpg-agent"
   gpg-connect-agent reloadagent /bye
+
+  . "$HOME/.bashrc"
 }
