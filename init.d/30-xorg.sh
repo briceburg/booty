@@ -12,6 +12,7 @@ xorg/archlinux(){
     acpi
     dmenu
     gtk3
+    gvfs
     xmonad
     xmonad-contrib
     xorg-apps
