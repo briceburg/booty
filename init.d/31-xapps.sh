@@ -10,11 +10,13 @@ xapps/archlinux(){
     firefox-developer-edition
     gnome-themes-standard
     gpick
+    gtk2fontsel
     lxappearance
     pcmanfm
     redshift
     rxvt-unicode
     rxvt-unicode-terminfo
+    xsel
     xterm
   )
 

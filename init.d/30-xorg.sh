@@ -13,13 +13,14 @@ xorg/archlinux(){
     dmenu
     gtk3
     gvfs
+    mesa
+    mesa-demos
+    noto-fonts
     xmonad
     xmonad-contrib
     xorg-apps
     xorg-server
     xorg-xinit
-    mesa
-    mesa-demos
   )
 
   case "$BOOTY_ENV" in

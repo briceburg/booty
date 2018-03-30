@@ -5,7 +5,7 @@ environment(){
 
   p/log "registering environment"
   file/interpolate '^export BOOTY_ENV=.*$' \
-    "export BOOTY_ENV=$BOOTY_ENV" "$HOME/.profile"
+    "export BOOTY_ENV=$BOOTY_ENV" "$HOME/.bashrc"
 }
 
 environment/select(){

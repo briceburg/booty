@@ -12,6 +12,7 @@ util/archlinux(){
     hunspell-en
     ntp
     rclone
+    sshfs
     vim
   )
 
