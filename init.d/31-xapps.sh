@@ -9,10 +9,13 @@ xapps/archlinux(){
     chromium
     firefox-developer-edition
     gnome-themes-standard
+    flameshot
     gpick
     gtk2fontsel
     lxappearance
     pcmanfm
+    pulseaudio
+    pavucontrol-qt
     redshift
     rxvt-unicode
     rxvt-unicode-terminfo
@@ -21,4 +24,9 @@ xapps/archlinux(){
   )
 
   sudo pacman --noconfirm -S ${pkgs[@]}
+
+  git -C "$BOOTY_GITDIR" clone https://aur.archlinux.org/hsetroot.git
+  cd "$BOOTY_GITDIR/hsetroot"
+
+  makepkg -si --noconfirm
 }

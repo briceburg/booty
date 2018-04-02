@@ -16,6 +16,8 @@ xorg/archlinux(){
     mesa
     mesa-demos
     noto-fonts
+    qt5-base
+    xcompmgr
     xmonad
     xmonad-contrib
     xorg-apps
