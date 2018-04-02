@@ -9,6 +9,7 @@ util(){
 util/archlinux(){
   pkgs=(
     docker
+    gnu-netcat
     hunspell-en
     ntp
     rclone

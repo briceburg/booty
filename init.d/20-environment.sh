@@ -6,6 +6,8 @@ environment(){
   p/log "registering environment"
   file/interpolate '^export BOOTY_ENV=.*$' \
     "export BOOTY_ENV=$BOOTY_ENV" "$HOME/.bashrc"
+
+  environment/bootstap
 }
 
 environment/select(){
@@ -21,4 +23,11 @@ environment/select(){
     echo "$env"
     return 0
   done
+}
+
+environment/bootstap(){
+  case "$BOOTY_ENV" in
+    hartford)
+      sudo systemctl enable dhcpcd@enp3s0 ;;
+  esac
 }
