@@ -4,6 +4,10 @@ development(){
   development/$BOOTY_DISTRO
 
   apm install package-sync
+
+  mkdir -p "$HOME/go/bin"
+  file/interpolate '^export PATH="$PATH:$HOME/go/bin"$' \
+                   'export PATH="$PATH:$HOME/go/bin"' "$HOME/.bashrc"
 }
 
 development/archlinux(){
