@@ -8,14 +8,14 @@ util(){
 
 util/archlinux(){
   pkgs=(
-    docker
     gnu-netcat
     hunspell-en
     ntp
     rclone
     sshfs
-    vim
+    whois
   )
 
   sudo pacman --noconfirm -S ${pkgs[@]}
+  sudo systemctl enable docker
 }
