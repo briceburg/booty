@@ -1,10 +1,8 @@
 #!/usr/bin/env shell-helpers
 
 xorg(){
-  xorg/$BOOTY_DISTRO
-
-  file/interpolate '^for f in ~/\.xinit\.d/.*$' \
-    "for f in ~/.xinit.d/*; do source \"\$f\"; done" "$HOME/.xinitrc"
+  "xorg/$BOOTY_DISTRO"
+  cp "$BOOTY_ROOT/src/.xinitrc" "$HOME/.xinitrc"
 }
 
 xorg/archlinux(){
