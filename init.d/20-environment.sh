@@ -28,6 +28,8 @@ environment/select(){
 environment/bootstap(){
   case "$BOOTY_ENV" in
     hartford)
-      sudo systemctl enable dhcpcd@enp3s0 ;;
+      sudo systemctl enable dhcpcd.service
+      sudo systemctl enable ntpdate.service
+      ;;
   esac
 }
