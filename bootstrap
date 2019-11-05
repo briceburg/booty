@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-BOOTY_REPO="${BOOTY_REPO:-git@github.com:briceburg/booty.git}"
+BOOTY_REPO="${BOOTY_REPO:-https://github.com/briceburg/booty.git}"
 BOOTY_DISTRO="${BOOTY_DISTRO:-archlinux}"
 
 main(){
@@ -11,7 +11,7 @@ main(){
   bootstrap/common
 
   [ -d "$HOME/git" ] || mkdir -p "$HOME/git"
-  [ -d "$HOME/git/booty" ] || git clone -C "$HOME/git" $BOOTY_REPO
+  [ -d "$HOME/git/booty" ] || git -C "$HOME/git" clone $BOOTY_REPO
   cd "$HOME/git/booty"
   bin/init
 }
