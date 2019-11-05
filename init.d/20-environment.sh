@@ -17,6 +17,7 @@ environment/select(){
     hartford
     toshiba
     pm1001
+    carbon
   )
 
   select env in "${envs[@]}"; do
