@@ -1,10 +1,11 @@
 #!/usr/bin/env shell-helpers
 
-gnupg(){
+gnupg()(
+  set -e
   gnupg/$BOOTY_DISTRO
 
   p/log "gnupg: import brice@iceburg.net public key ($GPG_PUBKEY)"
-  gpg --keyserver hkp://keys.gnupg.net --recv-keys "$GPG_PUBKEY"
+  gpg --keyserver hkp://pool.sks-keyservers.net --recv-keys "$GPG_PUBKEY"
 
   # set trustlevel to ultimate
   gpg -k "$GPG_PUBKEY" | grep -A1 -B0 "$GPG_PUBKEY" | tail -n1 | grep -q 'ultimate' || \
@@ -19,7 +20,7 @@ gnupg(){
   p/log "gnupg: import $GPG_PUBKEY secret key"
   prompt/confirm "continue importing MASTER KEY? usually no." || return 0
   gnupg/import "$BOOTY_TMPDIR/master.key"
-}
+)
 
 gnupg/archlinux(){
   pkgs=(
