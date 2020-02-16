@@ -32,5 +32,13 @@ environment/bootstap(){
       sudo systemctl enable dhcpcd.service
       sudo systemctl enable ntpdate.service
       ;;
+    carbon)
+      file/interpolate '^GRUB_CMDLINE_LINUX=.*$' \
+        '^GRUB_CMDLINE_LINUX="resume=/dev/sda3X"' "/etc/default/grub"
+
+      # adding resume to end
+      file/interpolate '^HOOKS=\(.*$' \
+        '^HOOKS=(base udev autodetect modconf block filesystems keyboard fsck resume)"' "/etc/mkinitcpio.conf"
+
   esac
 }
