@@ -18,6 +18,7 @@ dotfiles()(
   p/log "dotfiles: prepare repository and checkout contents"
   gitbooty config status.showUntrackedFiles no
   gitbooty checkout --force
+  gitbooty pull
 )
 
 gitbooty(){

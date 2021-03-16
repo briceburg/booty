@@ -19,6 +19,7 @@ xapps/archlinux(){
     redshift
     rxvt-unicode
     rxvt-unicode-terminfo
+    ttf-hack
     xsel
     xterm
   )

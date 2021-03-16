@@ -29,8 +29,8 @@ environment/select(){
 environment/bootstap(){
   case "$BOOTY_ENV" in
     hartford)
-      sudo systemctl enable dhcpcd.service
-      sudo systemctl enable ntpdate.service
+      #sudo systemctl enable dhcpcd.service
+      #sudo systemctl enable ntpdate.service
       ;;
     carbon)
       file/interpolate '^GRUB_CMDLINE_LINUX=.*$' \

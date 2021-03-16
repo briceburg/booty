@@ -12,8 +12,6 @@ bash(){
 bash/archlinux(){
   pkgs=(
     bash-completion
-    fzf
-    the_silver_searcher
   )
   sudo pacman --noconfirm -S ${pkgs[@]}
 }
