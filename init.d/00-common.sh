@@ -6,6 +6,7 @@ common(){
 
 common/archlinux(){
   pkgs=(
+    f2fs-tools
     fzf
     man-db
     ntp

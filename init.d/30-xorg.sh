@@ -15,6 +15,9 @@ xorg/archlinux(){
     mesa-demos
     noto-fonts
     qt5-base
+    vkd3d
+    vulkan-icd-loader
+    vulkan-tools
     xcompmgr
     xmonad
     xmonad-contrib
