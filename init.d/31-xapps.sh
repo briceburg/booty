@@ -13,9 +13,10 @@ xapps/archlinux(){
     gpick
     gtk2fontsel
     lxappearance
-    pcmanfm
-    pulseaudio
     pavucontrol-qt
+    pcmanfm
+    polkit-gnome
+    pulseaudio
     redshift
     rxvt-unicode
     rxvt-unicode-terminfo
