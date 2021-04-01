@@ -27,8 +27,10 @@ xapps/archlinux(){
 
   sudo pacman --noconfirm -S ${pkgs[@]}
 
-  git -C "$BOOTY_GITDIR" clone https://aur.archlinux.org/hsetroot.git
-  cd "$BOOTY_GITDIR/hsetroot"
 
-  makepkg -si --noconfirm
+  (
+    git -C "$BOOTY_GITDIR" clone https://aur.archlinux.org/hsetroot.git
+    cd "$BOOTY_GITDIR/hsetroot"
+    makepkg -si --noconfirm
+  )
 }
