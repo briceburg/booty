@@ -18,6 +18,7 @@ environment/select(){
     toshiba
     pm1001
     carbon
+    htpc
   )
 
   select env in "${envs[@]}"; do

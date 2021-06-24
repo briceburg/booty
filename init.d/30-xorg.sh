@@ -31,7 +31,7 @@ xorg/archlinux(){
       pkgs+=( xf86-video-amdgpu libva-mesa-driver vulkan-radeon ) ;;
     toshiba)
       pkgs+=( xf86-video-intel ) ;;
-    carbon)
+    carbon|htpc)
       pkgs+=(  xf86-video-intel vulkan-intel ) ;;
     *)
       p/warn "unsupported environment: $BOOTY_ENV" ;;
