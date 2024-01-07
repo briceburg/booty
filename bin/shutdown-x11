@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+
+# gracefully close all windows
+wmctrl -l | awk '{print $1}' | while read -r win; do
+    wmctrl -i -c "$win"
+done
+
+# loop until all windows are closed
+while [ -n "$(wmctrl -l)" ]; do { sleep 0.5; }; done
+
+# kill xmonad -- TODO: ideally xmonad could spawn and wait for this script to end.
+killall xmonad-x86_64-linux
