@@ -14,6 +14,8 @@ myConfig = desktopConfig
   , terminal    = "wezterm"
   , startupHook = return () >> checkKeymap myConfig myKeys
   , layoutHook  = tall ||| Mirror tall ||| noBorders Full
+  , focusedBorderColor = "#00BB00"
+  , normalBorderColor  = "#777777"
   }
   `additionalKeysP` myKeys
 
