@@ -1,0 +1,7 @@
+pacmd list-sinks | grep "name: <pi>" || {
+  pacmd load-module module-tunnel-sink sink_name=pi server=radio.lan 
+  sleep 1
+  echo tried to load-module module-tunnel-sink
+}
+
+pacmd load-module module-combine-sink sink_name=combined sink_properties=device.description=CombinedSink slaves=alsa_output.pci-0000_2d_00.4.analog-stereo,pi 
