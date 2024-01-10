@@ -23,5 +23,7 @@ picom --daemon --config ~/.config/picom.conf
 # restore color temp
 [ -e ~/.local/state/brightness-temp ] && \
   xsct "$(cat ~/.local/state/brightness-temp)" 1
+
+pgreg polkit-gnome-authentication-agent || /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
   
 exec xmonad
