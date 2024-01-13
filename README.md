@@ -3,20 +3,16 @@ briceburg's dotfiles :pirate_flag: :gift:
 
 ## notes
 
-* dotfiles get their own [branch](https://github.com/briceburg/booty/branches), e.g. [archlinux-xmonad](https://github.com/briceburg/booty/tree/archlinux-xmonad). branches supporting [nix home manager](https://github.com/nix-community/home-manager) are possible.
-* the system [bootystrap](https://github.com/briceburg/bootystrap) configures a fresh OS. it's idempotent and provides the `gitbooty` command for managing files in this repo.
-* `gitbooty` is based on [familiar patterns](https://www.atlassian.com/git/tutorials/dotfiles) for keeping dotfiles in git.
+* dotfiles exist in [branches](https://github.com/briceburg/booty/branches), e.g. [archlinux-xmonad](https://github.com/briceburg/booty/tree/archlinux-xmonad), and are managed by the [gitbooty](#usage) command. 
+* `gitbooty` is based on [familiar patterns](https://www.atlassian.com/git/tutorials/dotfiles) for keeping dotfiles in a bare git repository and setting `--work_tree=$HOME`.
+* branches supporting [nix home manager](https://github.com/nix-community/home-manager) are possible.
+
 
 ## installation
 
 ### system bootstrap
 
-bootstrapping a system provides `/usr/local/bin/gitbooty`
-
-* archlinux
-  ```sh
-  bash <(curl https://raw.githubusercontent.com/briceburg/bootystrap/archlinux/usr/local/bin/bootystrap)
-  ```
+the [system bootystrap](https://github.com/briceburg/bootystrap) configures a fresh OS. it's idempotent and provides an easy way for installing `gitbooty` as well as managing all the other good things such as packages and /etc file configuration. fork and modify to your needs.
 
 ### manual
 
