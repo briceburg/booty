@@ -2,7 +2,7 @@
 # ~/.bashrc
 #
 
-# If not running interactively, don't do anything
+# skip configuration if non-interactive 
 [[ $- != *i* ]] && return
 
 PATH="$HOME/bin:$PATH"
@@ -11,3 +11,6 @@ alias ls='eza'
 alias grep='grep --color=auto'
 alias pbcopy='xsel --clipboard --input'
 alias pbpaste='xsel --clipboard --output'
+
+# proceed with fancy pants
+eval "$(atuin init bash)"
