@@ -1,0 +1,39 @@
+# See /etc/dunst/dunstrc for all configuration options
+[global]
+    font = Monospace 11
+    format = "<b>%s</b>\n%b"
+
+    width = (300, 600)
+    height = 640
+    alignment = center
+    vertical_alignment = center
+
+    frame_width = 2
+    gap_size = 4
+    separator_color = frame
+    transparency = 0
+
+    enable_recursive_icon_lookup = true
+    icon_theme = Adwaita
+
+    progress_bar = true
+    progress_bar_max_width = 600
+    show_age_threshold = -1
+
+[urgency_low]
+    background = "#5B8234"
+    foreground = "#ffffff"
+    frame_color = "#BBE284"
+    timeout = 0
+
+[urgency_normal]
+    background = "#285577"
+    foreground = "#ffffff"
+    frame_color = "#78B5D7"
+    timeout = 10
+
+[urgency_critical]
+    background = "#900000"
+    foreground = "#ffffff"
+    frame_color = "#ff0000"
+    timeout = 0
