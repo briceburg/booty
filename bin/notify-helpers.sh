@@ -11,7 +11,18 @@ case "$1" in
       arr=(${batinfo//,/ })
       batinfo="\n<b>battery</b>\n${arr[0]} (<b>${arr[1]}</b>)\n${arr[*]:2}"
     fi
-    dunstify -h string:x-dunst-stack-tag:info -u low "$(date '+%a %b %d %I:%M %p %Z')" "\n$(cal -3 -c1)$batinfo"
+
+    wifiinfo=$(iw dev wlan0 link | awk '
+    $1=="SSID:" {ssid = $2}
+    $1=="signal:" {signal = $2$3}
+    $1=="rx" {rx = $3}
+    $1=="tx" {tx = $3$4}
+    END {print ssid, signal, "\n", rx, "rx/tx", tx}')
+    if [ -n "$wifiinfo" ]; then
+      wifiinfo="\n\n<b>wifi</b>\n$wifiinfo"
+    fi
+
+    dunstify -h string:x-dunst-stack-tag:info -u low "$(date '+%a %b %d %I:%M %p %Z')" "\n$(cal -c1)$batinfo$wifiinfo"
     ;;
   *)
     notify-send -u critical "$(basename "$0")" "unknown argument"
