@@ -17,9 +17,11 @@ case "$1" in
     $1=="signal:" {signal = $2$3}
     $1=="rx" {rx = $3}
     $1=="tx" {tx = $3$4}
-    END {print ssid, signal, "\n", rx, "rx/tx", tx}')
+    END {if (ssid){print ssid, signal, "\n", rx, "rx/tx", tx}}')
     if [ -n "$wifiinfo" ]; then
       wifiinfo="\n\n<b>wifi</b>\n$wifiinfo"
+    else
+      wifiinfo="\n\n<b>wifi</b>\nNot Connected.\n\`ip a\` for more."
     fi
 
     dunstify -h string:x-dunst-stack-tag:info -u low "$(date '+%a %b %d %I:%M %p %Z')" "\n$(cal -c1)$batinfo$wifiinfo"
