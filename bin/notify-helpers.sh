@@ -1,9 +1,25 @@
 #!/usr/bin/env bash
 
+toggle_dunstify() {
+  id=1000 # notifications from this script share an ID
+
+  statefile="/tmp/dunstify_toggle_${id}_$USER"
+  if [ -f "$statefile" ]; then
+    echo "closing"
+    dunstify --close=$id
+    rm -f "$statefile"
+    exit 0
+  else
+    echo "opening"
+    dunstify --replace=$id "$@"
+    touch "$statefile"
+  fi
+}
+
 case "$1" in
   cal)
     DAY=$(date +'%e')
-    dunstify -h string:x-dunst-stack-tag:cal -u low 'Calendar' "$(cal -3 -c1 | sed -e "s/$DAY\b/<u><b>$DAY<\/b><\/u>/g")"
+    toggle_dunstify -u low 'Calendar' "$(cal -3 -c1 | sed -e "s/$DAY\b/<u><b>$DAY<\/b><\/u>/g")"
     ;;
   info)
     batinfo="$(acpi | grep -v 'Unknown\|unavailable' | cut -d':' -f2-)"
@@ -24,7 +40,7 @@ case "$1" in
       wifiinfo="\n\n<b>wifi</b>\nNot Connected.\n\`ip a\` for more."
     fi
 
-    dunstify -h string:x-dunst-stack-tag:info -u low "$(date '+%a %b %d %I:%M %p %Z')" "\n$(cal -c1)$batinfo$wifiinfo"
+    toggle_dunstify -u low "$(date '+%a %b %d %I:%M %p %Z')" "\n$(cal -c1)$batinfo$wifiinfo"
     ;;
   *)
     notify-send -u critical "$(basename "$0")" "unknown argument"
