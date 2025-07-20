@@ -13,11 +13,12 @@ pkg(){ pacman -S --noconfirm --needed "$@"; }
 )
 
 aur=(
+  google-cloud-cli
   #keybase
   #kbfs
   #radio-cli-bin
   visual-studio-code-bin
-  zrok-bin
+  #zrok-bin
 )
 
 core=(
@@ -45,7 +46,6 @@ core=(
 )
 
 gui=(
-  input-leap # kvm (synergy, barrier replacement - deskflow for wayland)
   firefox
   flameshot
   gnome-keyring
@@ -96,6 +96,8 @@ util=(
 virt=(
   dnsmasq
   docker
+  docker-buildx
+  docker-compose
   libvirt
 )
 
@@ -156,6 +158,7 @@ prompt/cfg(){
       xtra+=(
         cups               # printing
         ghostscript        # printing / canon LBP6000
+        input-leap         # kvm (synergy/barrier replacement - deskflow for wayland)
         lib32-mesa         # steam
         lib32-systemd      # steam
         lib32-vulkan-intel # steam
@@ -165,7 +168,6 @@ prompt/cfg(){
 
       aur+=(
         captdriver-git     # printing /  canon LBP6000
-        google-cloud-cli
       )
 
       postinstall(){
