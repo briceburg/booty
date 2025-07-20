@@ -38,6 +38,7 @@ myKeys =
   , ("M-c"         , runFull "chromium" ["Chromium"])
   , ("M-e"         , runFull "eclipse" ["Eclipse"])
   , ("M-f"         , runFull "firefox" ["Navigator", "firefox"])
+  , ("M-g"         , runFull "gimp" ["Gimp"])
   , ("M-i"         , runFull "inkscape" ["Inkscape"])
   , ("M-o"         , runFull "onlyoffice-desktopeditors" ["ONLYOFFICE Desktop Editors"])
   , ("M-S-<Return>", runFull "warp-terminal" ["dev.warp.Warp"])

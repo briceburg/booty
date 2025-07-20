@@ -2,6 +2,10 @@
 . /etc/X11/xinit/xinitrc
 
 case $(hostname) in
+  hartford)
+    # start input-leaps
+    pgrep input-leaps || input-leaps --disable-crypto
+    ;;
   zb14x)
     # disable touchscreen
     xinput list --name-only | grep ELAN | while read  -r name; do
@@ -24,6 +28,7 @@ picom --daemon --config ~/.config/picom.conf
 [ -e ~/.local/state/brightness-temp ] && \
   xsct "$(cat ~/.local/state/brightness-temp)" 1
 
-pgreg polkit-gnome-authentication-agent || /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
-  
+# start authentication agent
+pgrep polkit-gnome-authentication-agent || /usr/lib/polkit-gnome/polkit-gnome-authentication-agent-1 &
+
 exec xmonad
