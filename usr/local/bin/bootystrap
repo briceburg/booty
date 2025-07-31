@@ -45,12 +45,17 @@ core=(
   usbutils
 )
 
+fonts=(
+  adwaita-fonts
+  noto-fonts-emoji
+  ttf-croscore
+)
+
 gui=(
   firefox
   flameshot
   gnome-keyring
   mesa
-  noto-fonts-emoji
   pipewire-jack
   pipewire-pulse
   polkit-gnome
@@ -114,6 +119,7 @@ xorg=(
   xorg-xinit
   xorg-xmessage
   xsel
+  xterm
 )
 
 xtra=()
@@ -138,7 +144,7 @@ prompt/cfg(){
       echo 1 > wifi
       ;;
     desktop_environment:xmonad)
-      gui+=( "${xorg[@]}" xmonad xmonad-contrib )
+      gui+=( "${xorg[@]}" "${fonts[@]}" xmonad xmonad-contrib )
       aur+=( xsct )
       ;;
     wifi:1)
@@ -163,7 +169,6 @@ prompt/cfg(){
         lib32-systemd      # steam
         lib32-vulkan-intel # steam
         steam              # steam
-        ttf-liberation
       )
 
       aur+=(
