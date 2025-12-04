@@ -3,7 +3,7 @@
 
 export PATH="$HOME/bin:$PATH"
 export PATH="$HOME/.fly/bin:$PATH"
-export CAPACITOR_ANDROID_STUDIO_PATH="/opt/android-studio/bin/studio"
+export CAPACITOR_ANDROID_STUDIO_PATH="$HOME/android-studio/bin/studio"
 export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
 source /usr/share/nvm/init-nvm.sh
 
@@ -18,4 +18,5 @@ alias pbpaste='xsel --clipboard --output'
 export VISUAL='msedit'
 
 # proceed with fancy pants
+source ~/.bashrc.encrypted || true
 eval "$(atuin init bash --disable-up-arrow)"
