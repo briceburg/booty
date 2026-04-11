@@ -7,6 +7,7 @@ die(){ log "$*"; exit 1; }
 pkg(){ pacman -S --noconfirm --needed "$@"; }
 
 (
+  # shellcheck disable=SC1091
   . /etc/os-release
   [ "$NAME" = "Arch Linux" ] || die "Is this Arch Linux?"
   [ $EUID -eq 0 ] || die "Please execute as superuser."
@@ -122,6 +123,13 @@ xorg=(
   xterm
 )
 
+steam_packages=(
+  lib32-mesa         # steam
+  lib32-systemd      # steam
+  lib32-vulkan-intel # steam
+  steam              # steam
+)
+
 xtra=()
 
 postinstall(){
@@ -150,8 +158,11 @@ prompt/cfg(){
     wifi:1)
       util+=( iwd )
       ;;
-    host:hartford)
+    steam:1)
       enable_multilib=true
+      xtra+=( "${steam_packages[@]}" )
+      ;;
+    host:hartford)
       gui+=(
         libva              # VA-API base
         intel-media-driver # VA-API NewGen/ARC Driver
@@ -165,10 +176,6 @@ prompt/cfg(){
         cups               # printing
         ghostscript        # printing / canon LBP6000
         input-leap         # kvm (synergy/barrier replacement - deskflow for wayland)
-        lib32-mesa         # steam
-        lib32-systemd      # steam
-        lib32-vulkan-intel # steam
-        steam              # steam
       )
 
       aur+=(
@@ -178,10 +185,12 @@ prompt/cfg(){
       postinstall(){
         local user="$1"
 
-        [ -e "/etc/sysctl.d/80-gamecompatibility.conf" ] || {
-          echo "vm.max_map_count = 2147483642" > /etc/sysctl.d/80-gamecompatibility.conf
-          sysctl --system
-        }
+        if $enable_multilib; then
+          [ -e "/etc/sysctl.d/80-gamecompatibility.conf" ] || {
+            echo "vm.max_map_count = 2147483642" > /etc/sysctl.d/80-gamecompatibility.conf
+            sysctl --system
+          }
+        fi
 
         # configure printing
         systemctl enable --now cups
@@ -210,6 +219,7 @@ prompt/cfg "laptop" 0
 prompt/cfg "wifi" 0
 prompt/cfg "desktop_environment" "xmonad"
 prompt/cfg "host" "$(uname -n)"
+prompt/cfg "steam" 0
 
 # configure pacman.conf
 grep -qF "Include = /etc/pacman.d/bootystrap" /etc/pacman.conf || cat << EOF >> /etc/pacman.conf
