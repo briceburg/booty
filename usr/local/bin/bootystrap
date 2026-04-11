@@ -138,6 +138,7 @@ postinstall(){
 # booty config
 enable_steam=false
 enable_multilib=false
+enable_wifi=false
 bootycfg="/etc/bootystrap"
 prompt/cfg(){
   local id="$1"
@@ -153,16 +154,9 @@ prompt/cfg(){
   echo "$answer" > "$id"
 
   case "$id:$answer" in
-    laptop:1)
-      util+=( "${laptop[@]}" )
-      echo 1 > wifi
-      ;;
     desktop_environment:xmonad)
       gui+=( "${xorg[@]}" "${fonts[@]}" xmonad xmonad-contrib )
       aur+=( xsct )
-      ;;
-    wifi:1)
-      util+=( iwd )
       ;;
     multilib:1)
       enable_multilib=true
@@ -217,15 +211,18 @@ prompt/cfg(){
       }
       ;;
     host:zb14x)
+      enable_wifi=true
+      util+=( "${laptop[@]}" )
       core+=( sof-firmware )
       ;;
+    host:*)
+      rm -f "$bootycfg/host"
+      die "unrecognized host '$answer'; host config reset, rerun bootystrap and choose a known host"
   esac
 }
 mkdir -p "$bootycfg" && cd "$_"
 prompt/cfg "user" "nesta"
 prompt/cfg "timezone" "US/Mountain" # /usr/share/zoneinfo/...
-prompt/cfg "laptop" 0
-prompt/cfg "wifi" 0
 prompt/cfg "host" "$(uname -n)"
 prompt/cfg "desktop_environment" "xmonad"
 prompt/cfg "steam" 0
@@ -238,6 +235,8 @@ if $enable_multilib; then
       ;;
   esac
 fi
+
+$enable_wifi && util+=( iwd )
 
 # configure pacman.conf
 grep -qF "Include = /etc/pacman.d/bootystrap" /etc/pacman.conf || cat << EOF >> /etc/pacman.conf
@@ -298,7 +297,7 @@ ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 # system configuration
 ln -sf "/usr/share/zoneinfo/$(cat $bootycfg/timezone)" /etc/localtime
 ln -sf /usr/bin/vim /usr/bin/vi
-[ "$(cat $bootycfg/wifi)" = "1" ] && systemctl enable --now iwd.service
+$enable_wifi && systemctl enable --now iwd.service
 systemctl enable --now systemd-timesyncd.service
 systemctl enable --now keyd.service
 #systemctl enable --now docker.service eats battery, look into toggling via tlp + protecting against running containers
