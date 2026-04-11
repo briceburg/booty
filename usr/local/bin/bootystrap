@@ -174,7 +174,7 @@ prompt/cfg(){
       )
       xtra+=(
         cups               # printing
-        ghostscript        # printing / canon LBP6000
+        hplip              # printing / HP_LaserJet_MFP_M139-M142
         input-leap         # kvm (synergy/barrier replacement - deskflow for wayland)
       )
 
@@ -195,16 +195,13 @@ prompt/cfg(){
         # configure printing
         systemctl enable --now cups
         usermod -aG lp "$user"
-
-        lpstat -v CanonLBP &>/dev/null || {
-          uri=$(lpinfo -v | grep usb://Canon | awk '{print $2}')
-          if [ -n "$uri" ]; then
-            log "configuring $uri"
-            lpadmin -p CanonLBP -m CanonLBP-3010-3018-3050.ppd -v "$uri" -E
-          else
-            log "failed to find printer, is it plugged in?"
-          fi
-        }
+        queue="hp-laserjet"
+        serial="VND5J38873"
+        if lpstat -v 2>/dev/null | grep -Fq "serial=$serial"; then
+          log "Printer with serial '$serial' already configured, skipping."
+        else
+          hp-setup -i -a -x --printer="$queue" "$serial" || log "[ERROR] hp-setup failed to setup '$queue'"
+        fi
       }
       ;;
     host:zb14x)
