@@ -14,10 +14,7 @@ pkg(){ pacman -S --noconfirm --needed "$@"; }
 )
 
 aur=(
-  google-cloud-cli
-  #keybase
-  #kbfs
-  #radio-cli-bin
+  flyctl
   visual-studio-code-bin
   #zrok-bin
 )
@@ -86,7 +83,7 @@ util=(
   ddcutil
   eza
   github-cli
-  gnu-netcat
+  openbsd-netcat
   inetutils
   jq
   ms-edit
@@ -110,7 +107,7 @@ virt=(
 xorg=(
   dmenu
   dunst
-  lxappearance-gtk3 
+  lxappearance
   picom # xcompmgr replacement
   wmctrl
   xdg-utils
@@ -181,9 +178,9 @@ prompt/cfg(){
         input-leap         # kvm (synergy/barrier replacement - deskflow for wayland)
       )
 
-      aur+=(
-        captdriver-git     # printing /  canon LBP6000
-      )
+      # aur+=(
+      #   captdriver-git     # printing /  canon LBP6000
+      # )
 
       postinstall(){
         local user="$1"
@@ -250,17 +247,6 @@ else
   echo > /etc/pacman.d/bootystrap
 fi
 
-# add warp.dev pacman repository and keys
-grep -qF "[warpdotdev]" /etc/pacman.conf || cat << EOF >> /etc/pacman.conf
-
-[warpdotdev]
-Server = https://releases.warp.dev/linux/pacman/\$repo/\$arch
-EOF
-pacman-key -f linux-maintainers@warp.dev || {
-  pacman-key -r "linux-maintainers@warp.dev"
-  pacman-key --lsign-key "linux-maintainers@warp.dev"
-}
-
 # sync packages and optimize mirrorlist
 pkg -y reflector
 reflector_flags=(
@@ -279,8 +265,22 @@ grep -q Reflector /etc/pacman.d/mirrorlist || {
   reflector "${reflector_flags[@]}" --verbose
 }
 
-# install packages
-pkg "${core[@]}" "${lang[@]}" "${util[@]}" "${virt[@]}" "${gui[@]}" "${xtra[@]}"
+# install core packages first (provides gnupg, ca-certificates, etc.)
+pkg "${core[@]}"
+
+# add warp.dev pacman repository and import key (requires gnupg from core)
+grep -qF "[warpdotdev]" /etc/pacman.conf || cat << EOF >> /etc/pacman.conf
+
+[warpdotdev]
+Server = https://releases.warp.dev/linux/pacman/\$repo/\$arch
+EOF
+pacman-key -f linux-maintainers@warp.dev || {
+  pacman-key -r "linux-maintainers@warp.dev"
+  pacman-key --lsign-key "linux-maintainers@warp.dev"
+}
+
+# install remaining packages
+pkg "${lang[@]}" "${util[@]}" "${virt[@]}" "${gui[@]}" "${xtra[@]}"
 
 # ensure system dotfiles are in place
 if [ -e /etc/bootystrap/.keep.system-dotfiles ]; then
@@ -304,19 +304,13 @@ systemctl enable --now keyd.service
 
 # user configuration
 user=$(cat $bootycfg/user)
-run(){ sudo --login -u "$user" "$@"; }
+
 log "configuring user: $user"
 id -u "$user" &>/dev/null || {
   useradd --create-home  "$user"
   passwd "$user"
 }
 usermod -aG docker,log,libvirt,rfkill,video,uucp,wheel "$user"
-run mkdir -p "/home/$user/"{git/AUR,bin,tmp}
-
-[ -d "/home/$user/.gitbooty" ] || {
-  log "pulling $user's dotfiles"
-  run gitbooty pull || log "failed pulling dotfiles"
-}
 
 # allow passwordless makepkg for AUR installations
 grep -qF "/usr/bin/pacman" "/etc/sudoers.d/user-$user" 2>/dev/null || cat << EOF >> "/etc/sudoers.d/user-$user"
@@ -324,15 +318,21 @@ $user ALL=(ALL:ALL) NOPASSWD: /usr/bin/makepkg
 $user ALL=(ALL:ALL) NOPASSWD: /usr/bin/pacman
 EOF
 
-# install AUR packages
-run /usr/local/bin/aur-install "${aur[@]}"
+sudo --login -u "$user" bash -s << 'BOOTSTRAP'
+  set -euo pipefail
+  echo "Bootstrapping user environment for $USER, home: $HOME"
 
-[ -d "/home/$user/git/keybase-crypt" ] || (
-  #run systemctl --user start keybase.service
-  #run systemctl --user start kbfs.service
-  echo -e '\033[1mKEYBASE STARTED, PLEASE CONTINUE TO SETUP CRYPT\033[0m'
-  read -rp "[Enter] to resume..."
-)
+  mkdir -p "$HOME/"{git/AUR,bin,tmp}
+
+  gitbooty pull || echo "[ERROR] failed pulling dotfiles" >&2
+
+  export NVM_DIR="$HOME/.nvm"
+  . /usr/share/nvm/init-nvm.sh
+  if [[ "$(nvm version default)" == "N/A" ]]; then
+    nvm install 24
+    nvm alias default 24
+  fi
+BOOTSTRAP
 
 # post-install
 log "post install: $(cat $bootycfg/host)"
