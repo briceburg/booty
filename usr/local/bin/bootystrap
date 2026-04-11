@@ -72,7 +72,7 @@ lang=(
   go
   #julia
   nodejs
-  nvm
+  fnm
   python
   rustup
 )
@@ -326,12 +326,15 @@ sudo --login -u "$user" bash -s << 'BOOTSTRAP'
 
   gitbooty pull || echo "[ERROR] failed pulling dotfiles" >&2
 
-  export NVM_DIR="$HOME/.nvm"
-  . /usr/share/nvm/init-nvm.sh
-  if [[ "$(nvm version default)" == "N/A" ]]; then
-    nvm install 24
-    nvm alias default 24
+  eval "$(fnm env --shell bash)"
+  if ! fnm default >/dev/null 2>&1; then
+    fnm install 24
+    fnm default 24
   fi
+
+  fnm use default --install-if-missing --silent-if-unchanged >/dev/null
+  command -v codex >/dev/null || npm i -g @openai/codex
+  command -v copilot >/dev/null || npm i -g @github/copilot
 BOOTSTRAP
 
 # post-install
