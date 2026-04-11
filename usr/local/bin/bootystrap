@@ -126,7 +126,6 @@ xorg=(
 steam_packages=(
   lib32-mesa         # steam
   lib32-systemd      # steam
-  lib32-vulkan-intel # steam
   steam              # steam
 )
 
@@ -137,13 +136,20 @@ postinstall(){
 }
 
 # booty config
+enable_steam=false
 enable_multilib=false
 bootycfg="/etc/bootystrap"
 prompt/cfg(){
   local id="$1"
   local default="$2"
+  local forced="${3:-}"
+  local answer
   [ -e "$id" ] || echo "$default" > "$id"
-  read -rp "$id? : " -i "$(cat "$id")" -e answer
+  if [ -n "$forced" ]; then
+    answer="$forced"
+  else
+    read -rp "$id? : " -i "$(cat "$id")" -e answer
+  fi
   echo "$answer" > "$id"
 
   case "$id:$answer" in
@@ -158,8 +164,11 @@ prompt/cfg(){
     wifi:1)
       util+=( iwd )
       ;;
-    steam:1)
+    multilib:1)
       enable_multilib=true
+      ;;
+    steam:1)
+      enable_steam=true
       xtra+=( "${steam_packages[@]}" )
       ;;
     host:hartford)
@@ -185,7 +194,7 @@ prompt/cfg(){
       postinstall(){
         local user="$1"
 
-        if $enable_multilib; then
+        if $enable_steam; then
           [ -e "/etc/sysctl.d/80-gamecompatibility.conf" ] || {
             echo "vm.max_map_count = 2147483642" > /etc/sysctl.d/80-gamecompatibility.conf
             sysctl --system
@@ -217,9 +226,18 @@ prompt/cfg "user" "nesta"
 prompt/cfg "timezone" "US/Mountain" # /usr/share/zoneinfo/...
 prompt/cfg "laptop" 0
 prompt/cfg "wifi" 0
-prompt/cfg "desktop_environment" "xmonad"
 prompt/cfg "host" "$(uname -n)"
+prompt/cfg "desktop_environment" "xmonad"
 prompt/cfg "steam" 0
+prompt/cfg "multilib" 0 "$($enable_steam && echo 1)"
+
+if $enable_multilib; then
+  case "$(cat "$bootycfg/host")" in
+    hartford)
+      xtra+=( lib32-vulkan-intel )
+      ;;
+  esac
+fi
 
 # configure pacman.conf
 grep -qF "Include = /etc/pacman.d/bootystrap" /etc/pacman.conf || cat << EOF >> /etc/pacman.conf
