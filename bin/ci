@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+on_exit() {
+  local status="$1"
+  [ "$status" -eq 0 ] &&
+    echo "✅ CI checks passed" >&2 ||
+    echo "❌ CI checks failed" >&2
+}
+
+cd "$(dirname "$0")/.." || exit 1
+
+if [ "${BOOTY_CI:-0}" = "1" ]; then
+  trap 'on_exit "$?"' EXIT
+  shellcheck -x bin/*
+  exit 0
+fi
+
+docker build -f Dockerfile.ci -t booty-ci .
+docker run --rm -e BOOTY_CI=1 -v "$PWD:/work" booty-ci ./bin/ci
