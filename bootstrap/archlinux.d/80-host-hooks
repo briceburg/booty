@@ -1,0 +1,3 @@
+run_source_dir "$host_dir/bootstrap.d" "$user"
+
+log "[OK] Bootstrap Complete"

@@ -1,0 +1,42 @@
+grep -qF "Include = /etc/pacman.d/bootystrap" /etc/pacman.conf || cat << EOF >> /etc/pacman.conf
+
+Include = /etc/pacman.d/bootystrap
+EOF
+
+if $enable_multilib; then
+  echo -e "[multilib]\nInclude = /etc/pacman.d/mirrorlist" > /etc/pacman.d/bootystrap
+else
+  : > /etc/pacman.d/bootystrap
+fi
+
+pkg reflector
+reflector_flags=(
+  --country US
+  --protocol https
+  --latest 20
+  --score 5
+  --sort rate
+  --save /etc/pacman.d/mirrorlist
+)
+echo "${reflector_flags[@]}" > /etc/xdg/reflector/reflector.conf
+
+grep -q Reflector /etc/pacman.d/mirrorlist || {
+  log "building mirrorlist. please wait while they're rated."
+  reflector "${reflector_flags[@]}" --verbose
+}
+
+if list_contains warp-terminal "${selected_packages[@]}"; then
+  grep -qF "[warpdotdev]" /etc/pacman.conf || cat << EOF >> /etc/pacman.conf
+
+[warpdotdev]
+Server = https://releases.warp.dev/linux/pacman/\$repo/\$arch
+EOF
+  pacman-key -f linux-maintainers@warp.dev || {
+    pacman-key -r "linux-maintainers@warp.dev"
+    pacman-key --lsign-key "linux-maintainers@warp.dev"
+  }
+fi
+
+if ((${#selected_packages[@]})); then
+  pkg "${selected_packages[@]}"
+fi

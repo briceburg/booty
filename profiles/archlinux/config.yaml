@@ -1,0 +1,127 @@
+group_defs:
+  core:
+    packages:
+      - acpi
+      - base-devel
+      - bash-completion
+      - ca-certificates
+      - curl
+      - fakeroot
+      - git
+      - gnupg
+      - greetd
+      - greetd-tuigreet
+      - keyd
+      - libgcrypt
+      - lm_sensors
+      - lsof
+      - man-db
+      - openssh
+      - pinentry
+      - reflector
+      - screen
+      - sudo
+      - tk
+      - usbutils
+  gui:
+    packages:
+      - firefox
+      - flameshot
+      - gnome-keyring
+      - mesa
+      - pipewire-jack
+      - pipewire-pulse
+      - polkit-gnome
+      - warp-terminal
+      - wireplumber
+  xorg:
+    packages:
+      - dmenu
+      - dunst
+      - lxappearance
+      - picom
+      - wmctrl
+      - xdg-utils
+      - xorg-apps
+      - xorg-server
+      - xorg-xeyes
+      - xorg-xinit
+      - xorg-xmessage
+      - xsel
+      - xterm
+  xmonad:
+    packages:
+      - adwaita-fonts
+      - noto-fonts-emoji
+      - ttf-croscore
+      - xmonad
+      - xmonad-contrib
+    aur:
+      - xsct
+  laptop:
+    packages:
+      - acpilight
+      - powertop
+      - tlp
+      - x86_energy_perf_policy
+  wifi:
+    packages:
+      - iwd
+    services:
+      - iwd.service
+  lang:
+    packages:
+      - go
+      - nodejs
+      - fnm
+      - python
+      - rustup
+  util:
+    packages:
+      - age
+      - atuin
+      - ddcutil
+      - eza
+      - github-cli
+      - inetutils
+      - jq
+      - ms-edit
+      - openbsd-netcat
+      - python-black
+      - smartmontools
+      - the_silver_searcher
+      - vim
+      - which
+      - whois
+  virt:
+    packages:
+      - dnsmasq
+      - docker
+      - docker-buildx
+      - docker-compose
+      - libvirt
+
+feature_defs:
+  steam:
+    packages:
+      - lib32-mesa
+      - lib32-systemd
+      - steam
+    bootstrap:
+      enable_multilib: true
+  printing:
+    services:
+      - cups.service
+
+service_defs:
+  common:
+    - reflector.timer
+    - systemd-resolved.service
+    - systemd-timesyncd.service
+    - keyd.service
+
+groups: []
+features: []
+packages: []
+services: []
+aur: []

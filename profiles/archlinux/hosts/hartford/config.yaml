@@ -1,0 +1,31 @@
+groups:
+  - core
+  - gui
+  - xorg
+  - xmonad
+  - lang
+  - util
+  - virt
+
+features:
+  - printing
+
+packages:
+  - cups
+  - hplip
+  - input-leap
+  - intel-media-driver
+  - libva-utils
+  - libvpl
+  - vpl-gpu-rt
+  - vulkan-intel
+  - vulkan-tools
+
+multilib_packages:
+  - lib32-vulkan-intel
+
+aur:
+  - flyctl
+  - visual-studio-code-bin
+
+services: []

@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+log(){ echo "$*" >&2 ; }
+die(){ log "$*"; exit 1; }
+
+bin_dir="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+repo_root="${BOOTY_SOURCE_DIR:-$(cd "$bin_dir/.." && pwd)}"
+
+detect_os() {
+  local id
+  [ -r /etc/os-release ] || die "cannot detect operating system: /etc/os-release is missing"
+  . /etc/os-release
+  id="${ID:-}"
+  [ -n "$id" ] || die "cannot detect operating system: ID is missing from /etc/os-release"
+
+  case "$id" in
+    arch) printf 'archlinux\n' ;;
+    *) printf '%s\n' "$id" ;;
+  esac
+}
+
+scope="home"
+target_root="$HOME"
+data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/booty"
+actor_user="$USER"
+if [ "$EUID" -eq 0 ]; then
+  scope="root"
+  target_root="/"
+  data_dir="${BOOTY_SYSTEM_DATA_DIR:-/var/lib/booty}"
+  actor_user="${SUDO_USER:-root}"
+fi
+
+os_id="${BOOTY_OS:-$(detect_os)}"
+host_id="${BOOTY_HOST:-$(uname -n)}"
+manifest="$data_dir/${scope}.manifest.tsv"
+public_profiles="$repo_root/profiles/$os_id"
+secrets_root="${BOOTY_SECRETS_DIR:-}"
+
+load_layers() {
+  local -n out="$1"
+  out=()
+  out+=("$public_profiles/$scope")
+  out+=("$public_profiles/hosts/$host_id/$scope")
+  if [ "$scope" = "home" ]; then
+    out+=("$public_profiles/users/$actor_user/home")
+    out+=("$public_profiles/hosts/$host_id/users/$actor_user/home")
+  fi
+  if [ -n "$secrets_root" ] && [ -d "$secrets_root/profiles/$os_id" ]; then
+    out+=("$secrets_root/profiles/$os_id/$scope")
+    out+=("$secrets_root/profiles/$os_id/hosts/$host_id/$scope")
+    if [ "$scope" = "home" ]; then
+      out+=("$secrets_root/profiles/$os_id/users/$actor_user/home")
+      out+=("$secrets_root/profiles/$os_id/hosts/$host_id/users/$actor_user/home")
+    fi
+  fi
+}
+
+bootstrap_cmd() {
+  local script="$repo_root/bootstrap/$os_id"
+  [ -x "$script" ] || die "missing bootstrap script: $script"
+  exec "$script" "$@"
+}
+
+run_gitbooty() {
+  local -a layers gitbooty_args
+  local writeback_root="$repo_root/profiles/$os_id/hosts/$host_id/root"
+  load_layers layers
+  if [ "$scope" = "home" ]; then
+    writeback_root="$repo_root/profiles/$os_id/users/$actor_user/home"
+  fi
+
+  gitbooty_args=(
+    --repo-root "$repo_root"
+    --writeback-root "$writeback_root"
+    --target-root "$target_root"
+    --manifest "$manifest"
+  )
+
+  for layer in "${layers[@]}"; do
+    gitbooty_args+=(--layer "$layer")
+  done
+
+  exec "$bin_dir/gitbooty" "${gitbooty_args[@]}" "$@"
+}
+
+cmd="${1:-status}"
+case "$cmd" in
+  bootstrap) shift; bootstrap_cmd "$@" ;;
+  pull|status|diff|add|mv|commit|push) run_gitbooty "$@" ;;
+  *)
+    die "unsupported command '$cmd' (supported: bootstrap, pull, status, diff, add, mv, commit, push)"
+    ;;
+esac

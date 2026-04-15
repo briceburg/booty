@@ -1,0 +1,21 @@
+groups:
+  - core
+  - gui
+  - xorg
+  - xmonad
+  - lang
+  - util
+  - virt
+  - laptop
+  - wifi
+
+features: []
+
+packages:
+  - sof-firmware
+
+aur:
+  - flyctl
+  - visual-studio-code-bin
+
+services: []

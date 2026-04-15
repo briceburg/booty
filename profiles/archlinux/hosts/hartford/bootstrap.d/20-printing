@@ -1,0 +1,11 @@
+user="${1:?expected user}"
+queue="hp-laserjet"
+serial="VND5J38873"
+
+usermod -aG lp "$user"
+
+if lpstat -v 2>/dev/null | grep -Fq "serial=$serial"; then
+  log "Printer with serial '$serial' already configured, skipping."
+else
+  hp-setup -i -a -x --printer="$queue" "$serial" || log "[ERROR] hp-setup failed to setup '$queue'"
+fi

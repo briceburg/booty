@@ -1,0 +1,17 @@
+booty pull || die "failed to pull root files, ensure booty is installed"
+
+ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+ln -sf "/usr/share/zoneinfo/$timezone" /etc/localtime
+ln -sf /usr/bin/vim /usr/bin/vi
+
+service=""
+for service in "${selected_services[@]}"; do
+  systemctl enable --now "$service"
+done
+
+if list_contains steam "${selected_features[@]}"; then
+  [ -e "/etc/sysctl.d/80-gamecompatibility.conf" ] || {
+    echo "vm.max_map_count = 2147483642" > /etc/sysctl.d/80-gamecompatibility.conf
+    sysctl --system
+  }
+fi

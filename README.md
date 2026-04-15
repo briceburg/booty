@@ -1,34 +1,84 @@
+# booty
 
-# booty-dotfiles
+briceburg's system bootstrap and dotfiles :pirate_flag: :gift:
 
-briceburg's user and system dotfiles :pirate_flag: :gift:
-
-## overview
-
-* dotfiles are managed by the [gitbooty](https://github.com/briceburg/gitbooty) command. see [Usage](https://github.com/briceburg/gitbooty#Usage) for details.
-* dotfiles exist in [branches](https://github.com/briceburg/booty-dotfiles/branches) of this repository. 
-  * by convention, user dotfiles are kept under a `<username>/<os-variant>` branch and system dotfiles under `system/<os-variant>` branches, e.g. [briceburg/archlinux](https://github.com/briceburg/booty-dotfiles/tree/briceburg/archlinux) and [system/archlinux](https://github.com/briceburg/booty-dotfiles/tree/system/archlinux).
-
-## usage
-
-### system bootstrap
-
-A system bootstrap script named 'bootystrap' is included in system dotfiles. The script must idempotently manage a system's packages, services, users, and core configuration -- the intention is to make it easy to restore state into a freshly installed OS!
-
-Here's an example from the system/archlinux branch: https://github.com/briceburg/booty-dotfiles/blob/system/archlinux/usr/local/bin/bootystrap
-
-To get started in a fresh OS that has available network and `git` installed;
-
-* first, install [gitbooty](https://github.com/briceburg/gitbooty).
-* next, checkout system dotfiles (`sudo gitbooty pull`). this will add `/usr/local/bootystrap`
-* finally, run the system bootstrap (`sudo bootystrap`)
-
-### creating a new branch
-
-Because branches represent a tree, either under a user's HOME direcotry, or under the root (/) directory when run as root/sudo, it's important to exclude files like README.md and LICENSE. The easiest way to do this is to create a branch without including previous history via the `--orphan` flag, and then include relevant dotfiles. E.g.
+`booty` keeps system files and home dotfiles in git under a familiar interface:
 
 ```sh
-git switch --orphan briceburg/foo
-git commit -am "initial commit of briceburg/foo" --allow-empty
-git push origin HEAD
+# home dotfiles
+booty pull                          # apply upstream changes into $HOME
+booty status                        # see local drift for tracked home files
+booty diff                          # inspect local home-file changes
+booty add ~/.bashrc                 # start tracking a file from $HOME
+booty mv ~/.bashrc ~/.bashrc.old    # move an already tracked file
+booty commit -am "update bashrc"    # write tracked local changes back into the repo
+booty push                          # push repo changes upstream
+
+# system files
+sudo booty status                   # see local drift for tracked system files
+sudo booty bootstrap                # provision a fresh machine
+
+# private encrypted overlay
+booty-secrets status                # same commands as booty, but with secrets enabled
+```
+
+* Normal user mode targets files under `$HOME`, e.g. /home/briceburg.
+* Root mode (e.g. when run via `sudo` above) targets files under `/`.
+* `booty-secrets` uses [`git-remote-gcrypt`](https://github.com/spwhitton/git-remote-gcrypt) to protect sensitive dotfiles in a [booty-secrets repo](https://github.com/briceburg/booty-secrets).
+
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/briceburg/booty/main/install | sudo bash
+```
+
+## Development
+
+Run directly from a local checkout:
+
+```sh
+# repo-aware wrapper
+./bin/booty status
+sudo ./bin/booty bootstrap
+
+# lower-level git-backed engine
+./bin/gitbooty
+```
+
+### Make It Yours
+
+The current bootstrap implementation targets Arch Linux, but the repo shape is meant to stay flexible enough for other OS profiles.
+
+Fork it, rename it, or rewrite the profile tree for your own machines.
+
+### My Layout
+
+```text
+profiles/
+  archlinux/
+    config.yaml
+    root/
+    hosts/
+      hartford/
+        config.yaml
+        bootstrap.d/
+      zb14x/
+        config.yaml
+    users/
+      briceburg/
+        home/
+        bootstrap.d/
+```
+
+The structure is:
+
+- `bin/`: `booty` wrapper plus the lower-level `gitbooty` engine
+- `profiles/<os>/...`: config organized by OS, host, user, and scope
+- `bootstrap/`: OS bootstrap entrypoints and hooks
+- `install`: the repo install entrypoint
+
+### Tests
+
+```sh
+./bin/ci
 ```

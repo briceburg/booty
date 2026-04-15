@@ -1,0 +1,49 @@
+bootycfg="/etc/bootystrap"
+mkdir -p "$bootycfg" && cd "$bootycfg"
+
+prompt_cfg "user" "${SUDO_USER:-nesta}"
+prompt_cfg "timezone" "US/Mountain"
+
+user="$(cat "$bootycfg/user")"
+timezone="$(cat "$bootycfg/timezone")"
+host="$(uname -n)"
+
+host_dir="$profile_dir/hosts/$host"
+host_config_yaml="$host_dir/config.yaml"
+[ -f "$host_config_yaml" ] || die "missing host definition: $host_config_yaml"
+merged_config_yaml="$bootycfg/config.merged.yaml"
+
+selected_groups=()
+selected_features=()
+selected_packages=()
+selected_services=()
+selected_aur=()
+selected_multilib_packages=()
+enable_multilib=false
+
+yaml_merge "$merged_config_yaml" "$config_yaml" "$host_config_yaml"
+
+append_yaml_list selected_groups "$merged_config_yaml" ".groups"
+append_yaml_list selected_features "$merged_config_yaml" ".features"
+append_yaml_list selected_packages "$merged_config_yaml" ".packages"
+append_yaml_list selected_services "$merged_config_yaml" ".services"
+append_yaml_list selected_aur "$merged_config_yaml" ".aur"
+append_yaml_list selected_multilib_packages "$merged_config_yaml" ".multilib_packages"
+append_yaml_list selected_services "$merged_config_yaml" ".service_defs.common"
+
+group=""
+for group in "${selected_groups[@]}"; do
+  append_yaml_list selected_packages "$merged_config_yaml" ".group_defs.$group.packages"
+  append_yaml_list selected_services "$merged_config_yaml" ".group_defs.$group.services"
+  append_yaml_list selected_aur "$merged_config_yaml" ".group_defs.$group.aur"
+done
+
+feature=""
+for feature in "${selected_features[@]}"; do
+  append_yaml_list selected_packages "$merged_config_yaml" ".feature_defs.$feature.packages"
+  append_yaml_list selected_services "$merged_config_yaml" ".feature_defs.$feature.services"
+  append_yaml_list selected_aur "$merged_config_yaml" ".feature_defs.$feature.aur"
+  [ "$(yaml_value "$merged_config_yaml" ".feature_defs.$feature.bootstrap.enable_multilib")" = "true" ] && enable_multilib=true
+done
+
+$enable_multilib && append_unique selected_packages "${selected_multilib_packages[@]}"

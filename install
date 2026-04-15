@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_url="${BOOTY_REPO_URL:-https://github.com/briceburg/booty.git}"
+install_dir="${BOOTY_INSTALL_DIR:-/usr/local/share/booty}"
+
+[ "$EUID" -eq 0 ] || {
+  echo "install must run as root" >&2
+  exit 1
+}
+
+command -v git >/dev/null || {
+  echo "git is required before running install.sh" >&2
+  exit 1
+}
+
+if [ -d "$install_dir/.git" ]; then
+  git -C "$install_dir" pull --ff-only
+else
+  mkdir -p "$(dirname "$install_dir")"
+  git clone "$repo_url" "$install_dir"
+fi
+
+ln -sf "$install_dir/bin/booty" /usr/local/bin/booty
+ln -sf "$install_dir/bin/booty-secrets" /usr/local/bin/booty-secrets
+
+booty bootstrap
