@@ -8,52 +8,71 @@ bin_dir="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 repo_root="${BOOTY_SOURCE_DIR:-$(cd "$bin_dir/.." && pwd)}"
 
 detect_os() {
-  local id
   [ -r /etc/os-release ] || die "cannot detect operating system: /etc/os-release is missing"
   . /etc/os-release
-  id="${ID:-}"
-  [ -n "$id" ] || die "cannot detect operating system: ID is missing from /etc/os-release"
-
-  case "$id" in
+  case "${ID:-}" in
+    "") die "cannot detect operating system: ID is missing from /etc/os-release" ;;
     arch) printf 'archlinux\n' ;;
-    *) printf '%s\n' "$id" ;;
+    *) printf '%s\n' "$ID" ;;
   esac
 }
 
-scope="home"
-target_root="$HOME"
-data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/booty"
-actor_user="$USER"
-if [ "$EUID" -eq 0 ]; then
-  scope="root"
-  target_root="/"
-  data_dir="${BOOTY_SYSTEM_DATA_DIR:-/var/lib/booty}"
-  actor_user="${SUDO_USER:-root}"
-fi
+mode="${BOOTY_SCOPE:-home}"
+[ "$EUID" -eq 0 ] && mode="${BOOTY_SCOPE:-root}"
 
 os_id="${BOOTY_OS:-$(detect_os)}"
 host_id="${BOOTY_HOST:-$(uname -n)}"
-manifest="$data_dir/${scope}.manifest.tsv"
-public_profiles="$repo_root/profiles/$os_id"
-secrets_root="${BOOTY_SECRETS_DIR:-}"
+user_name="${SUDO_USER:-${USER:-$(id -un)}}"
+profiles_dir="$repo_root/profiles/$os_id"
+secrets_dir=""
+[ -n "${BOOTY_SECRETS_DIR:-}" ] && secrets_dir="${BOOTY_SECRETS_DIR}/profiles/$os_id"
+
+# Layer order is low to high precedence:
+#   1. OS-wide public files
+#   2. host-specific public files
+#   3. user-specific public files
+#   4. host+user public files
+#   5. matching secrets layers in the same order
+case "$mode" in
+  home)
+    target_root="${BOOTY_TARGET_ROOT:-$HOME}"
+    manifest_path="${XDG_DATA_HOME:-$HOME/.local/share}/booty/home.manifest.tsv"
+    writeback_root="$profiles_dir/users/$user_name/home"
+    ;;
+  root)
+    target_root="${BOOTY_TARGET_ROOT:-/}"
+    manifest_path="${BOOTY_SYSTEM_DATA_DIR:-/var/lib/booty}/root.manifest.tsv"
+    writeback_root="$profiles_dir/hosts/$host_id/root"
+    ;;
+  *)
+    die "unsupported mode '$mode' (expected: home or root)"
+    ;;
+esac
 
 load_layers() {
   local -n out="$1"
   out=()
-  out+=("$public_profiles/$scope")
-  out+=("$public_profiles/hosts/$host_id/$scope")
-  if [ "$scope" = "home" ]; then
-    out+=("$public_profiles/users/$actor_user/home")
-    out+=("$public_profiles/hosts/$host_id/users/$actor_user/home")
+  [ -d "$profiles_dir/$mode" ] && out+=("$profiles_dir/$mode")
+  [ -d "$profiles_dir/hosts/$host_id/$mode" ] &&
+    out+=("$profiles_dir/hosts/$host_id/$mode")
+  if [ "$mode" = "home" ]; then
+    [ -d "$profiles_dir/users/$user_name/home" ] &&
+      out+=("$profiles_dir/users/$user_name/home")
+    [ -d "$profiles_dir/hosts/$host_id/users/$user_name/home" ] &&
+      out+=("$profiles_dir/hosts/$host_id/users/$user_name/home")
   fi
-  if [ -n "$secrets_root" ] && [ -d "$secrets_root/profiles/$os_id" ]; then
-    out+=("$secrets_root/profiles/$os_id/$scope")
-    out+=("$secrets_root/profiles/$os_id/hosts/$host_id/$scope")
-    if [ "$scope" = "home" ]; then
-      out+=("$secrets_root/profiles/$os_id/users/$actor_user/home")
-      out+=("$secrets_root/profiles/$os_id/hosts/$host_id/users/$actor_user/home")
+  if [ -n "$secrets_dir" ] && [ -d "$secrets_dir" ]; then
+    [ -d "$secrets_dir/$mode" ] && out+=("$secrets_dir/$mode")
+    [ -d "$secrets_dir/hosts/$host_id/$mode" ] &&
+      out+=("$secrets_dir/hosts/$host_id/$mode")
+    if [ "$mode" = "home" ]; then
+      [ -d "$secrets_dir/users/$user_name/home" ] &&
+        out+=("$secrets_dir/users/$user_name/home")
+      [ -d "$secrets_dir/hosts/$host_id/users/$user_name/home" ] &&
+        out+=("$secrets_dir/hosts/$host_id/users/$user_name/home")
     fi
   fi
+  return 0
 }
 
 bootstrap_cmd() {
@@ -64,17 +83,13 @@ bootstrap_cmd() {
 
 run_gitbooty() {
   local -a layers gitbooty_args
-  local writeback_root="$repo_root/profiles/$os_id/hosts/$host_id/root"
   load_layers layers
-  if [ "$scope" = "home" ]; then
-    writeback_root="$repo_root/profiles/$os_id/users/$actor_user/home"
-  fi
 
   gitbooty_args=(
     --repo-root "$repo_root"
     --writeback-root "$writeback_root"
     --target-root "$target_root"
-    --manifest "$manifest"
+    --manifest "$manifest_path"
   )
 
   for layer in "${layers[@]}"; do

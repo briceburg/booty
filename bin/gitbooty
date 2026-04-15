@@ -73,6 +73,14 @@ ensure_data_dir() {
   mkdir -p "$(dirname "$manifest")"
 }
 
+repo_git() {
+  git -C "$repo_root" "$@"
+}
+
+require_manifest() {
+  [ -f "$manifest" ] || die "no manifest; run 'pull' first"
+}
+
 canonicalize_target() {
   local path="$1"
   case "$path" in
@@ -110,6 +118,11 @@ infer_source_rel() {
   esac
 }
 
+manifest_source_rel() {
+  local rel="$1"
+  awk -F '\t' -v rel="$rel" '$1 == rel { print $2 }' "$manifest"
+}
+
 build_manifest() {
   local output="$1"
   local -A mapping=()
@@ -133,7 +146,7 @@ build_manifest() {
   done | sort > "$output"
 }
 
-source_file_path() {
+source_path() {
   local rel="$1"
   case "$rel" in
     /*) printf '%s\n' "$rel" ;;
@@ -166,7 +179,7 @@ apply_manifest() {
 
   while IFS=$'\t' read -r rel source_rel; do
     [ -n "$rel" ] || continue
-    src="$(source_file_path "$source_rel")"
+    src="$(source_path "$source_rel")"
     dst="$target_root/$rel"
     mkdir -p "$(dirname "$dst")"
     cp -f "$src" "$dst"
@@ -174,17 +187,17 @@ apply_manifest() {
 }
 
 maybe_git_pull() {
-  if git -C "$repo_root" remote get-url origin >/dev/null 2>&1; then
-    git -C "$repo_root" pull --ff-only
+  if repo_git remote get-url origin >/dev/null 2>&1; then
+    repo_git pull --ff-only
   fi
 }
 
 status_cmd() {
   local rel source_rel src dst dirty=false
-  [ -f "$manifest" ] || die "no manifest; run 'pull' first"
+  require_manifest
   while IFS=$'\t' read -r rel source_rel; do
     [ -n "$rel" ] || continue
-    src="$(source_file_path "$source_rel")"
+    src="$(source_path "$source_rel")"
     dst="$target_root/$rel"
     if [ ! -e "$dst" ]; then
       printf ' D %s\n' "$dst"
@@ -194,16 +207,16 @@ status_cmd() {
       dirty=true
     fi
   done < "$manifest"
-  git -C "$repo_root" status --short
+  repo_git status --short
   $dirty && return 1 || return 0
 }
 
 diff_cmd() {
   local rel source_rel src dst
-  [ -f "$manifest" ] || die "no manifest; run 'pull' first"
+  require_manifest
   while IFS=$'\t' read -r rel source_rel; do
     [ -n "$rel" ] || continue
-    src="$(source_file_path "$source_rel")"
+    src="$(source_path "$source_rel")"
     dst="$target_root/$rel"
     if [ -e "$dst" ] && ! cmp -s "$src" "$dst"; then
       diff -u "$src" "$dst" || true
@@ -218,10 +231,10 @@ add_cmd() {
   [ -e "$abs" ] || die "path '$abs' does not exist"
   rel="$(relative_target "$abs")"
   source_rel="$(infer_source_rel "$rel")"
-  dest="$(source_file_path "$source_rel")"
+  dest="$(source_path "$source_rel")"
   mkdir -p "$(dirname "$dest")"
   cp -f "$abs" "$dest"
-  git -C "$repo_root" add "$source_rel"
+  repo_git add "$source_rel"
   ensure_data_dir
   if [ -f "$manifest" ]; then
     grep -v "^${rel}"$'\t' "$manifest" > "$manifest.tmp" || true
@@ -239,20 +252,17 @@ mv_cmd() {
   src_rel="$(relative_target "$src_abs")"
   dst_rel="$(relative_target "$dst_abs")"
   [ -e "$src_abs" ] || die "path '$src_abs' does not exist"
-  if [ -f "$manifest" ]; then
-    source_rel="$(awk -F '\t' -v rel="$src_rel" '$1 == rel { print $2 }' "$manifest")"
-  else
-    source_rel=""
-  fi
+  source_rel=""
+  [ -f "$manifest" ] && source_rel="$(manifest_source_rel "$src_rel")"
   [ -n "$source_rel" ] || die "path '$src_abs' is not tracked; use 'add' for new files"
   dest_rel="$(infer_source_rel "$dst_rel")"
-  dest="$(source_file_path "$dest_rel")"
-  if [ -e "$(source_file_path "$source_rel")" ]; then
+  dest="$(source_path "$dest_rel")"
+  if [ -e "$(source_path "$source_rel")" ]; then
     mkdir -p "$(dirname "$dst_abs")"
     mv "$src_abs" "$dst_abs"
     mkdir -p "$(dirname "$dest")"
-    mv "$(source_file_path "$source_rel")" "$dest"
-    git -C "$repo_root" add -A -- "$source_rel" "$dest_rel"
+    mv "$(source_path "$source_rel")" "$dest"
+    repo_git add -A -- "$source_rel" "$dest_rel"
     awk -F '\t' -v src="$src_rel" -v dst="$dst_rel" -v newrel="$dest_rel" 'BEGIN { OFS="\t" } $1 == src { $1=dst; $2=newrel } { print }' "$manifest" > "$manifest.tmp"
     mv "$manifest.tmp" "$manifest"
   else
@@ -266,24 +276,24 @@ sync_manifest_to_source() {
   while IFS=$'\t' read -r rel source_rel; do
     [ -n "$rel" ] || continue
     src="$target_root/$rel"
-    dst="$(source_file_path "$source_rel")"
+    dst="$(source_path "$source_rel")"
     if [ -e "$src" ]; then
       mkdir -p "$(dirname "$dst")"
       cp -f "$src" "$dst"
-      git -C "$repo_root" add "$source_rel"
+      repo_git add "$source_rel"
     elif [ -e "$dst" ]; then
-      git -C "$repo_root" rm -f -- "$source_rel"
+      repo_git rm -f -- "$source_rel"
     fi
   done < "$manifest"
 }
 
 commit_cmd() {
   sync_manifest_to_source
-  git -C "$repo_root" commit "${cmd_args[@]}"
+  repo_git commit "${cmd_args[@]}"
 }
 
 push_cmd() {
-  git -C "$repo_root" push "${cmd_args[@]}"
+  repo_git push "${cmd_args[@]}"
 }
 
 pull_cmd() {

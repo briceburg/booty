@@ -13,6 +13,7 @@ cd "$(dirname "$0")/.." || exit 1
 if [ "${BOOTY_CI:-0}" = "1" ]; then
   trap 'on_exit "$?"' EXIT
   shellcheck -x bin/*
+  bats tests/gitbooty.bats tests/booty.bats
   exit 0
 fi
 

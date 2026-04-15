@@ -82,3 +82,5 @@ The structure is:
 ```sh
 ./bin/ci
 ```
+
+`bin/ci` runs shell checks and the `bats` suite in `tests/`.
