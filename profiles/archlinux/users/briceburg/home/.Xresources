@@ -1,0 +1,7 @@
+Xft.dpi: 192
+
+XTerm.termName: xterm-256color
+XTerm.vt100.locale: false
+XTerm.vt100.utf8: true
+XTerm.vt100.reverseVideo: true
+XTerm*faceName: monospace:pixelsize=24

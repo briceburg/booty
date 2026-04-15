@@ -1,0 +1,13 @@
+[init]
+	defaultBranch = main
+[push]
+	autoSetupRemote = true
+[user]
+	name = Brice Burgess
+	email = nesta@iceburg.net
+[credential "https://github.com"]
+	helper = !/usr/bin/gh auth git-credential
+[credential "https://gist.github.com"]
+	helper = !/usr/bin/gh auth git-credential
+[pull]
+	rebase = true

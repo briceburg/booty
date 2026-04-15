@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+pactl load-module module-tunnel-sink server=tcp:192.168.216.104
+
+# on tunnel side, be sure pa is set to listen
+# e.g. in /etc/pulse/default.pa
+### Network access (may be configured with paprefs, so leave this commented
+### here if you plan to use paprefs)
+# load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1;192.168.0.0/24;192.168.216.0/24
