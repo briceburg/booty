@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# gitbootystrap managed
+set -eo pipefail
+
+log(){ echo "$*" >&2 ; }
+die(){ log "$*"; exit 1; }
+repo_dir="$HOME/git/AUR" 
+
+[ $EUID -eq 0 ] && die "Cannot execute as superuser."
+[ -d "$repo_dir" ] || die "missing $repo_dir - has user been bootystrapped?"
+
+for i in "$@"; do
+  (
+    cd "$repo_dir"
+    [ -d "$i" ] || git clone "https://aur.archlinux.org/$i.git" 
+    cd "$i" && git pull # upgrades the package
+    makepkg -si --noconfirm --needed
+  )
+done

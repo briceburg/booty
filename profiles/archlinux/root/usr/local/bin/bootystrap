@@ -1,0 +1,341 @@
+#!/usr/bin/env bash
+# gitbooty managed
+set -eo pipefail
+
+log(){ echo "$*" >&2 ; }
+die(){ log "$*"; exit 1; }
+pkg(){ pacman -S --noconfirm --needed "$@"; }
+
+(
+  # shellcheck disable=SC1091
+  . /etc/os-release
+  [ "$NAME" = "Arch Linux" ] || die "Is this Arch Linux?"
+  [ $EUID -eq 0 ] || die "Please execute as superuser."
+)
+
+aur=(
+  flyctl
+  visual-studio-code-bin
+  #zrok-bin
+)
+
+core=(
+  acpi
+  base-devel
+  bash-completion
+  ca-certificates
+  curl
+  fakeroot # for makepkg
+  git
+  gnupg
+  greetd
+  greetd-tuigreet
+  keyd
+  libgcrypt
+  lm_sensors
+  lsof
+  man-db
+  openssh
+  pinentry
+  screen
+  sudo
+  tk
+  usbutils
+)
+
+fonts=(
+  adwaita-fonts
+  noto-fonts-emoji
+  ttf-croscore
+)
+
+gui=(
+  firefox
+  flameshot
+  gnome-keyring
+  mesa
+  pipewire-jack
+  pipewire-pulse
+  polkit-gnome
+  warp-terminal
+  wireplumber # replaces pipewire media session
+)
+
+laptop=(
+  acpilight # xbacklight
+  powertop
+  tlp
+  x86_energy_perf_policy
+)
+
+lang=(
+  go
+  #julia
+  nodejs
+  fnm
+  python
+  rustup
+)
+
+util=(
+  age
+  atuin
+  ddcutil
+  eza
+  github-cli
+  openbsd-netcat
+  inetutils
+  jq
+  ms-edit
+  python-black
+  smartmontools
+  the_silver_searcher
+  vim
+  which
+  whois
+  yq
+)
+
+virt=(
+  dnsmasq
+  docker
+  docker-buildx
+  docker-compose
+  libvirt
+)
+
+xorg=(
+  dmenu
+  dunst
+  lxappearance
+  picom # xcompmgr replacement
+  wmctrl
+  xdg-utils
+  xorg-apps
+  xorg-server
+  xorg-xeyes
+  xorg-xinit
+  xorg-xmessage
+  xsel
+  xterm
+)
+
+steam_packages=(
+  lib32-mesa         # steam
+  lib32-systemd      # steam
+  steam              # steam
+)
+
+xtra=()
+
+postinstall(){
+  echo "postinstall not defined for this host"
+}
+
+# booty config
+enable_steam=false
+enable_multilib=false
+enable_wifi=false
+bootycfg="/etc/bootystrap"
+prompt/cfg(){
+  local id="$1"
+  local default="$2"
+  local forced="${3:-}"
+  local answer
+  [ -e "$id" ] || echo "$default" > "$id"
+  if [ -n "$forced" ]; then
+    answer="$forced"
+  else
+    read -rp "$id? : " -i "$(cat "$id")" -e answer
+  fi
+  echo "$answer" > "$id"
+
+  case "$id:$answer" in
+    desktop_environment:xmonad)
+      gui+=( "${xorg[@]}" "${fonts[@]}" xmonad xmonad-contrib )
+      aur+=( xsct )
+      ;;
+    multilib:1)
+      enable_multilib=true
+      ;;
+    steam:1)
+      enable_steam=true
+      xtra+=( "${steam_packages[@]}" )
+      ;;
+    host:hartford)
+      gui+=(
+        libva              # VA-API base
+        intel-media-driver # VA-API NewGen/ARC Driver
+        libva-utils        # provides 'vainfo' command
+        libvpl             # VPL base
+        vpl-gpu-rt         # VPL NewGen/ARC Driver
+        vulkan-intel       # Vulkan base
+        vulkan-tools       # provides 'vulkaninfo' command
+      )
+      xtra+=(
+        cups               # printing
+        hplip              # printing / HP_LaserJet_MFP_M139-M142
+        input-leap         # kvm (synergy/barrier replacement - deskflow for wayland)
+      )
+
+      # aur+=(
+      #   captdriver-git     # printing /  canon LBP6000
+      # )
+
+      postinstall(){
+        local user="$1"
+
+        if $enable_steam; then
+          [ -e "/etc/sysctl.d/80-gamecompatibility.conf" ] || {
+            echo "vm.max_map_count = 2147483642" > /etc/sysctl.d/80-gamecompatibility.conf
+            sysctl --system
+          }
+        fi
+
+        # configure printing
+        systemctl enable --now cups
+        usermod -aG lp "$user"
+        queue="hp-laserjet"
+        serial="VND5J38873"
+        if lpstat -v 2>/dev/null | grep -Fq "serial=$serial"; then
+          log "Printer with serial '$serial' already configured, skipping."
+        else
+          hp-setup -i -a -x --printer="$queue" "$serial" || log "[ERROR] hp-setup failed to setup '$queue'"
+        fi
+      }
+      ;;
+    host:zb14x)
+      enable_wifi=true
+      util+=( "${laptop[@]}" )
+      core+=( sof-firmware )
+      ;;
+    host:*)
+      rm -f "$bootycfg/host"
+      die "unrecognized host '$answer'; host config reset, rerun bootystrap and choose a known host"
+  esac
+}
+mkdir -p "$bootycfg" && cd "$_"
+prompt/cfg "user" "nesta"
+prompt/cfg "timezone" "US/Mountain" # /usr/share/zoneinfo/...
+prompt/cfg "host" "$(uname -n)"
+prompt/cfg "desktop_environment" "xmonad"
+prompt/cfg "steam" 0
+prompt/cfg "multilib" 0 "$($enable_steam && echo 1)"
+
+if $enable_multilib; then
+  case "$(cat "$bootycfg/host")" in
+    hartford)
+      xtra+=( lib32-vulkan-intel )
+      ;;
+  esac
+fi
+
+$enable_wifi && util+=( iwd )
+
+# configure pacman.conf
+grep -qF "Include = /etc/pacman.d/bootystrap" /etc/pacman.conf || cat << EOF >> /etc/pacman.conf
+
+Include = /etc/pacman.d/bootystrap
+EOF
+
+if $enable_multilib; then
+  echo -e "[multilib]\nInclude = /etc/pacman.d/mirrorlist" > /etc/pacman.d/bootystrap
+else
+  echo > /etc/pacman.d/bootystrap
+fi
+
+# sync packages and optimize mirrorlist
+pkg -y reflector
+reflector_flags=(
+  --country US
+  --protocol https
+  --latest 20
+  --score 5
+  --sort rate
+  --save /etc/pacman.d/mirrorlist
+)
+echo "${reflector_flags[@]}" > /etc/xdg/reflector/reflector.conf
+systemctl enable reflector.timer # refresh mirrors weekly
+
+grep -q Reflector /etc/pacman.d/mirrorlist || {
+  log "building mirrorlist. please wait while they're rated."
+  reflector "${reflector_flags[@]}" --verbose
+}
+
+# install core packages first (provides gnupg, ca-certificates, etc.)
+pkg "${core[@]}"
+
+# add warp.dev pacman repository and import key (requires gnupg from core)
+grep -qF "[warpdotdev]" /etc/pacman.conf || cat << EOF >> /etc/pacman.conf
+
+[warpdotdev]
+Server = https://releases.warp.dev/linux/pacman/\$repo/\$arch
+EOF
+pacman-key -f linux-maintainers@warp.dev || {
+  pacman-key -r "linux-maintainers@warp.dev"
+  pacman-key --lsign-key "linux-maintainers@warp.dev"
+}
+
+# install remaining packages
+pkg "${lang[@]}" "${util[@]}" "${virt[@]}" "${gui[@]}" "${xtra[@]}"
+
+# ensure system dotfiles are in place
+if [ -e /etc/bootystrap/.keep.system-dotfiles ]; then
+  log "gitbooty: system-dotfiles are present, skipping pull"
+else
+  gitbooty pull || \
+  die "failed to pull system dotfiles, ensure http://github.com/briceburg/gitbooty is configured"
+fi
+
+# network configuration
+systemctl enable --now systemd-resolved.service
+ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+
+# system configuration
+ln -sf "/usr/share/zoneinfo/$(cat $bootycfg/timezone)" /etc/localtime
+ln -sf /usr/bin/vim /usr/bin/vi
+$enable_wifi && systemctl enable --now iwd.service
+systemctl enable --now systemd-timesyncd.service
+systemctl enable --now keyd.service
+#systemctl enable --now docker.service eats battery, look into toggling via tlp + protecting against running containers
+
+# user configuration
+user=$(cat $bootycfg/user)
+
+log "configuring user: $user"
+id -u "$user" &>/dev/null || {
+  useradd --create-home  "$user"
+  passwd "$user"
+}
+usermod -aG docker,log,libvirt,rfkill,video,uucp,wheel "$user"
+
+# allow passwordless makepkg for AUR installations
+grep -qF "/usr/bin/pacman" "/etc/sudoers.d/user-$user" 2>/dev/null || cat << EOF >> "/etc/sudoers.d/user-$user"
+$user ALL=(ALL:ALL) NOPASSWD: /usr/bin/makepkg
+$user ALL=(ALL:ALL) NOPASSWD: /usr/bin/pacman
+EOF
+
+sudo --login -u "$user" bash -s << 'BOOTSTRAP'
+  set -euo pipefail
+  echo "Bootstrapping user environment for $USER, home: $HOME"
+
+  mkdir -p "$HOME/"{git/AUR,bin,tmp}
+
+  gitbooty pull || echo "[ERROR] failed pulling dotfiles" >&2
+
+  eval "$(fnm env --shell bash)"
+  if ! fnm default >/dev/null 2>&1; then
+    fnm install 24
+    fnm default 24
+  fi
+
+  fnm use default --install-if-missing --silent-if-unchanged >/dev/null
+  command -v codex >/dev/null || npm i -g @openai/codex
+  command -v copilot >/dev/null || npm i -g @github/copilot
+BOOTSTRAP
+
+# post-install
+log "post install: $(cat $bootycfg/host)"
+postinstall "$user"
+
+log "[OK] Bootstrap Complete"
