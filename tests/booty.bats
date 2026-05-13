@@ -1,143 +1,180 @@
 #!/usr/bin/env bats
 
-# Exercises the repo-aware wrapper against a fixture shaped like:
-#   repo/
-#     bin/booty
-#     bin/gitbooty
-#     profiles/archlinux/
-#       users/nesta/home/...
-#       hosts/hartford/users/nesta/home/...
-#       root/...
-#   home/            rendered user tree
-#   root/            rendered root-mode tree
-#   state/           manifest output
+load test_helper
 
-setup() {
-  export TEST_ROOT="$(mktemp -d /tmp/booty-test.XXXXXX)"
-  export FIXTURE_REPO="$TEST_ROOT/repo"
-  export FIXTURE_SECRETS="$TEST_ROOT/secrets"
-  export FIXTURE_HOME="$TEST_ROOT/home"
-  export FIXTURE_ROOT="$TEST_ROOT/root"
-  export FIXTURE_STATE="$TEST_ROOT/state"
+setup() { setup_booty_public; }
+teardown() { teardown_tmp; }
 
-  mkdir -p \
-    "$FIXTURE_REPO/bin" \
-    "$FIXTURE_REPO/profiles/archlinux/users/nesta/home/.config" \
-    "$FIXTURE_REPO/profiles/archlinux/hosts/hartford/users/nesta/home/.config" \
-    "$FIXTURE_REPO/profiles/archlinux/root/etc" \
-    "$FIXTURE_SECRETS/profiles/archlinux/users/nesta/home/.config" \
-    "$FIXTURE_HOME" \
-    "$FIXTURE_ROOT" \
-    "$FIXTURE_STATE"
+booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
 
-  cp /work/bin/booty /work/bin/gitbooty "$FIXTURE_REPO/bin/"
-  git -C "$FIXTURE_REPO" init -q
+@test "booty pull applies repo-shaped home and rootfs files" {
+  writef "$FIXTURE_REPO" "dotfiles/archlinux/rootfs/home/foo/.bashrc" wrong-user
 
-  printf '%s\n' base > \
-    "$FIXTURE_REPO/profiles/archlinux/users/nesta/home/.config/app.conf"
-  printf '%s\n' override > \
-    "$FIXTURE_REPO/profiles/archlinux/hosts/hartford/users/nesta/home/.config/app.conf"
-  printf '%s\n' shell > \
-    "$FIXTURE_REPO/profiles/archlinux/users/nesta/home/.bashrc"
-  printf '%s\n' root-base > \
-    "$FIXTURE_REPO/profiles/archlinux/root/etc/example.conf"
-}
-
-teardown() {
-  rm -rf "$TEST_ROOT"
-}
-
-booty_env() {
-  env \
-    HOME="$FIXTURE_HOME" \
-    BOOTY_SOURCE_DIR="$FIXTURE_REPO" \
-    BOOTY_OS=archlinux \
-    BOOTY_HOST=hartford \
-    "$@"
-}
-
-booty_home() {
-  # bats runs as root in CI, so force home mode for the user-scope tests.
-  booty_env \
-    USER=nesta \
-    BOOTY_SCOPE=home \
-    XDG_DATA_HOME="$FIXTURE_STATE" \
-    "$FIXTURE_REPO/bin/booty" "$@"
-}
-
-booty_home_secrets() {
-  booty_env \
-    USER=nesta \
-    BOOTY_SCOPE=home \
-    BOOTY_SECRETS_DIR="$FIXTURE_SECRETS" \
-    XDG_DATA_HOME="$FIXTURE_STATE" \
-    "$FIXTURE_REPO/bin/booty" "$@"
-}
-
-booty_root_shell() {
-  booty_env \
-    USER=root \
-    BOOTY_TARGET_ROOT="$FIXTURE_ROOT" \
-    BOOTY_SYSTEM_DATA_DIR="$FIXTURE_STATE/system" \
-    "$FIXTURE_REPO/bin/booty" "$@"
-}
-
-booty_root_sudo() {
-  booty_env \
-    USER=root \
-    SUDO_USER=nesta \
-    BOOTY_TARGET_ROOT="$FIXTURE_ROOT" \
-    BOOTY_SYSTEM_DATA_DIR="$FIXTURE_STATE/system" \
-    "$FIXTURE_REPO/bin/booty" "$@"
-}
-
-@test "booty pull applies repo-shaped home layers" {
-  run booty_home pull
-
+  run booty pull
   [ "$status" -eq 0 ]
   [ "$(cat "$FIXTURE_HOME/.config/app.conf")" = "override" ]
   [ "$(cat "$FIXTURE_HOME/.bashrc")" = "shell" ]
+  [ "$(cat "$FIXTURE_ROOT/etc/example.conf")" = "root-base" ]
+  [ ! -e "$FIXTURE_ROOT/home/foo/.bashrc" ]
   [ -f "$FIXTURE_STATE/booty/home.manifest.tsv" ]
+  [ -f "$FIXTURE_STATE/booty/rootfs.manifest.tsv" ]
+}
+
+@test "booty derives repo root from BOOTY_HOME" {
+  run env BOOTY_HOME="$BOOTY_HOME" "$BOOTY_ROOT/bin/booty" pull
+  [ "$status" -eq 0 ]
+  [ "$(cat "$FIXTURE_HOME/.bashrc")" = "shell" ]
+}
+
+@test "booty setup clones public checkout, applies it, and sets up secrets" {
+  public_remote="$TEST_ROOT/public-remote"
+  secrets_remote="$TEST_ROOT/secrets-remote"
+  fixture dotfiles/public "$public_remote/dotfiles"
+  writef "$secrets_remote" "dotfiles/archlinux/rootfs/home/nesta/.private" secrets-bootstrap
+  git -C "$public_remote" init -q
+  git_id "$public_remote"
+  git_commit_all "$public_remote" "seed public"
+  git -C "$secrets_remote" init -q
+  git_id "$secrets_remote"
+  git_commit_all "$secrets_remote" "seed secrets"
+  rm -rf "$FIXTURE_REPO" "$BOOTY_HOME/booty-secrets"
+  fake gcrypt
+  fake gpg
+
+  run env \
+    BOOTY_REPO_URL="file://$public_remote" \
+    BOOTY_SECRETS_URL="gcrypt::file://$secrets_remote" \
+    "$BOOTY_ROOT/bin/booty" setup
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$FIXTURE_REPO" remote get-url origin)" = "file://$public_remote" ]
+  [ -d "$BOOTY_HOME/booty-secrets/.git" ]
+  [ "$(cat "$FIXTURE_HOME/.bashrc")" = "shell" ]
+  [ "$(cat "$FIXTURE_HOME/.private")" = "secrets-bootstrap" ]
+}
+
+@test "booty setup skips secrets checkout when gpg is unconfigured" {
+  rm -rf "$BOOTY_HOME/booty-secrets"
+  : > "$BOOTY_HOME/config"
+
+  run env BOOTY_REPO_URL= BOOTY_SECRETS_URL="gcrypt::file://$TEST_ROOT/secrets-remote" "$BOOTY_ROOT/bin/booty" setup
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"skipping secrets checkout"* ]]
+  [ ! -e "$BOOTY_HOME/booty-secrets" ]
+}
+
+@test "booty setup rejects non-gcrypt secrets repo urls" {
+  : > "$BOOTY_HOME/config"
+
+  run env BOOTY_REPO_URL= BOOTY_SECRETS_URL="$TEST_ROOT/plain-remote" "$BOOTY_ROOT/bin/booty" setup
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"BOOTY_SECRETS_URL must use gcrypt::"* ]]
+}
+
+@test "booty bootstrap points to the unambiguous commands" {
+  run booty bootstrap
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"use 'booty setup'"* ]]
+  [[ "$output" == *"booty-bootstrap"* ]]
+}
+
+@test "booty help shows booty usage" {
+  run booty help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"usage: booty"* ]]
+}
+
+@test "booty config passes through to git config" {
+  git -C "$FIXTURE_REPO" config user.name "Test User"
+
+  run booty config user.name
+  [ "$status" -eq 0 ]
+  [ "$output" = "Test User" ]
 }
 
 @test "booty status reports clean after pull on repo-shaped tree" {
-  booty_home pull >/dev/null
+  booty pull >/dev/null
 
-  run booty_home status
+  run booty status
+  [ "$status" -eq 0 ]
 
+  run booty
   [ "$status" -eq 0 ]
 }
 
-@test "booty secrets layers override public home layers" {
-  printf '%s\n' secret > \
-    "$FIXTURE_SECRETS/profiles/archlinux/users/nesta/home/.config/app.conf"
+@test "booty status reports system drift by default" {
+  booty pull >/dev/null
+  writef "$FIXTURE_ROOT" "etc/example.conf" changed
 
-  run booty_home_secrets pull
-
-  [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_HOME/.config/app.conf")" = "secret" ]
+  run booty status
+  [ "$status" -ne 0 ]
+  [[ "$output" == *$'M\tetc/example.conf'* ]]
 }
 
-@test "booty pull applies repo-shaped root files into an overridden root target" {
-  run booty_root_shell pull
+@test "booty add routes relative and absolute home paths to dotfiles home" {
+  writef "$FIXTURE_HOME" "relative.conf" relative
+  writef "$FIXTURE_HOME" "absolute.conf" absolute
 
+  ( cd "$FIXTURE_HOME" && booty add relative.conf )
+  run booty add "$FIXTURE_HOME/absolute.conf"
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_ROOT/etc/example.conf")" = "root-base" ]
-  [ -f "$FIXTURE_STATE/system/root.manifest.tsv" ]
+  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/relative.conf")" = "relative" ]
+  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/absolute.conf")" = "absolute" ]
 }
 
-@test "booty defaults to root mode in a root shell" {
-  booty_root_shell pull >/dev/null
+@test "booty add routes absolute system paths to host system dotfiles" {
+  writef "$FIXTURE_ROOT" "etc/routed.conf" routed
 
-  run booty_root_shell status
-
+  run booty add "$FIXTURE_ROOT/etc/routed.conf"
   [ "$status" -eq 0 ]
+  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/etc/routed.conf")" = "routed" ]
+  [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/etc/routed.conf" ]
 }
 
-@test "booty defaults to root mode under sudo" {
-  booty_root_sudo pull >/dev/null
+@test "booty refuses another user's home path" {
+  run booty add /home/foo/.bashrc
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"refusing to manage another user's home"* ]]
+}
 
-  run booty_root_sudo status
+@test "booty add accepts mixed user and system paths" {
+  writef "$FIXTURE_HOME" ".gitconfig" user-gitconfig
+  writef "$FIXTURE_ROOT" "root/.bashrc" root-bashrc
 
+  run booty add "$FIXTURE_HOME/.gitconfig" "$FIXTURE_ROOT/root/.bashrc"
   [ "$status" -eq 0 ]
+  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.gitconfig")" = "user-gitconfig" ]
+  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/root/.bashrc")" = "root-bashrc" ]
+}
+
+@test "booty mv can move tracked files between user and system paths" {
+  writef "$FIXTURE_HOME" ".gitconfig" moved-to-system
+  booty add "$FIXTURE_HOME/.gitconfig"
+
+  run booty mv "$FIXTURE_HOME/.gitconfig" "$FIXTURE_ROOT/root/.bashrc"
+  [ "$status" -eq 0 ]
+  [ ! -e "$FIXTURE_HOME/.gitconfig" ]
+  [ "$(cat "$FIXTURE_ROOT/root/.bashrc")" = "moved-to-system" ]
+  [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.gitconfig" ]
+  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/root/.bashrc")" = "moved-to-system" ]
+
+  run booty mv "$FIXTURE_ROOT/root/.bashrc" "$FIXTURE_HOME/.root-bashrc"
+  [ "$status" -eq 0 ]
+  [ ! -e "$FIXTURE_ROOT/root/.bashrc" ]
+  [ "$(cat "$FIXTURE_HOME/.root-bashrc")" = "moved-to-system" ]
+  [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/root/.bashrc" ]
+  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.root-bashrc")" = "moved-to-system" ]
+}
+
+@test "booty refuses direct root execution" {
+  run env USER=root "$BOOTY_ROOT/bin/booty" pull
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"run booty as your regular user"* ]]
+}
+
+@test "booty requires checkout under BOOTY_HOME" {
+  rm -rf "$FIXTURE_REPO"
+
+  run booty status
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"missing public checkout"* ]]
 }

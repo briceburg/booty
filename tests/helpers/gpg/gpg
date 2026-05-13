@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+case "$*" in
+  *"--list-secret-keys"*"--with-colons"*) printf '%s\n' 'sec:::::::::' ;;
+esac

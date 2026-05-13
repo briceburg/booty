@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+if [ "$1" = "clone" ] && [ "${2#gcrypt::}" != "$2" ]; then
+  set -- clone "${2#gcrypt::}" "$3"
+fi
+exec /usr/bin/git "$@"

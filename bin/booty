@@ -1,109 +1,41 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
-log(){ echo "$*" >&2 ; }
-die(){ log "$*"; exit 1; }
+. "$(dirname "$(readlink -f "$0")")/../lib/booty.sh"
 
-bin_dir="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-repo_root="${BOOTY_SOURCE_DIR:-$(cd "$bin_dir/.." && pwd)}"
+[ "$BOOTY_USER" != root ] ||
+  die "run booty as your regular user; booty uses sudo only for protected system files"
 
-detect_os() {
-  [ -r /etc/os-release ] || die "cannot detect operating system: /etc/os-release is missing"
-  . /etc/os-release
-  case "${ID:-}" in
-    "") die "cannot detect operating system: ID is missing from /etc/os-release" ;;
-    arch) printf 'archlinux\n' ;;
-    *) printf '%s\n' "$ID" ;;
-  esac
-}
+case "${1:-status}" in
+  -h|--help|help)
+    cat <<EOF
+usage: booty <command> [args]
 
-mode="${BOOTY_SCOPE:-home}"
-[ "$EUID" -eq 0 ] && mode="${BOOTY_SCOPE:-root}"
+commands: pull apply status diff add rm mv commit setup gpg
+git commands: branch config remote log show fetch tag push
 
-os_id="${BOOTY_OS:-$(detect_os)}"
-host_id="${BOOTY_HOST:-$(uname -n)}"
-user_name="${SUDO_USER:-${USER:-$(id -un)}}"
-profiles_dir="$repo_root/profiles/$os_id"
-secrets_dir=""
-[ -n "${BOOTY_SECRETS_DIR:-}" ] && secrets_dir="${BOOTY_SECRETS_DIR}/profiles/$os_id"
-
-# Layer order is low to high precedence:
-#   1. OS-wide public files
-#   2. host-specific public files
-#   3. user-specific public files
-#   4. host+user public files
-#   5. matching secrets layers in the same order
-case "$mode" in
-  home)
-    target_root="${BOOTY_TARGET_ROOT:-$HOME}"
-    manifest_path="${XDG_DATA_HOME:-$HOME/.local/share}/booty/home.manifest.tsv"
-    writeback_root="$profiles_dir/users/$user_name/home"
+Use 'booty-secrets <command>' to operate on the secrets checkout.
+EOF
     ;;
-  root)
-    target_root="${BOOTY_TARGET_ROOT:-/}"
-    manifest_path="${BOOTY_SYSTEM_DATA_DIR:-/var/lib/booty}/root.manifest.tsv"
-    writeback_root="$profiles_dir/hosts/$host_id/root"
+  setup)
+    booty_setup
+    ;;
+  gpg)
+    shift
+    booty_gpg "$@"
+    ;;
+  bootstrap)
+    die "use 'booty setup' for repo setup; use 'booty-bootstrap' for OS bootstrap"
     ;;
   *)
-    die "unsupported mode '$mode' (expected: home or root)"
-    ;;
-esac
-
-load_layers() {
-  local -n out="$1"
-  out=()
-  [ -d "$profiles_dir/$mode" ] && out+=("$profiles_dir/$mode")
-  [ -d "$profiles_dir/hosts/$host_id/$mode" ] &&
-    out+=("$profiles_dir/hosts/$host_id/$mode")
-  if [ "$mode" = "home" ]; then
-    [ -d "$profiles_dir/users/$user_name/home" ] &&
-      out+=("$profiles_dir/users/$user_name/home")
-    [ -d "$profiles_dir/hosts/$host_id/users/$user_name/home" ] &&
-      out+=("$profiles_dir/hosts/$host_id/users/$user_name/home")
-  fi
-  if [ -n "$secrets_dir" ] && [ -d "$secrets_dir" ]; then
-    [ -d "$secrets_dir/$mode" ] && out+=("$secrets_dir/$mode")
-    [ -d "$secrets_dir/hosts/$host_id/$mode" ] &&
-      out+=("$secrets_dir/hosts/$host_id/$mode")
-    if [ "$mode" = "home" ]; then
-      [ -d "$secrets_dir/users/$user_name/home" ] &&
-        out+=("$secrets_dir/users/$user_name/home")
-      [ -d "$secrets_dir/hosts/$host_id/users/$user_name/home" ] &&
-        out+=("$secrets_dir/hosts/$host_id/users/$user_name/home")
+    if [ -n "$BOOTY_SECRETS" ]; then
+      repo="$booty_secrets_repo"
+      export BOOTY_MANIFEST_PREFIX=secrets
+      [ -d "$repo/.git" ] || die "missing secrets checkout: $repo; run 'booty setup'"
+    else
+      repo="$booty_repo"
+      [ -d "$repo/.git" ] || die "missing public checkout: $repo; run install or clone your repo there"
     fi
-  fi
-  return 0
-}
-
-bootstrap_cmd() {
-  local script="$repo_root/bootstrap/$os_id"
-  [ -x "$script" ] || die "missing bootstrap script: $script"
-  exec "$script" "$@"
-}
-
-run_gitbooty() {
-  local -a layers gitbooty_args
-  load_layers layers
-
-  gitbooty_args=(
-    --repo-root "$repo_root"
-    --writeback-root "$writeback_root"
-    --target-root "$target_root"
-    --manifest "$manifest_path"
-  )
-
-  for layer in "${layers[@]}"; do
-    gitbooty_args+=(--layer "$layer")
-  done
-
-  exec "$bin_dir/gitbooty" "${gitbooty_args[@]}" "$@"
-}
-
-cmd="${1:-status}"
-case "$cmd" in
-  bootstrap) shift; bootstrap_cmd "$@" ;;
-  pull|status|diff|add|mv|commit|push) run_gitbooty "$@" ;;
-  *)
-    die "unsupported command '$cmd' (supported: bootstrap, pull, status, diff, add, mv, commit, push)"
+    booty_run "$repo" "${1:-status}" "${@:2}"
     ;;
 esac
