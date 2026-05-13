@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
 
 on_exit() {
   local status="$1"
@@ -9,13 +9,28 @@ on_exit() {
 }
 
 cd "$(dirname "$0")/.." || exit 1
+trap 'on_exit "$?"' EXIT
 
-if [ "${BOOTY_CI:-0}" = "1" ]; then
-  trap 'on_exit "$?"' EXIT
-  shellcheck -x bin/*
-  bats tests/gitbooty.bats tests/booty.bats
+if [ "${BOOTY_CI:-0}" != "1" ]; then
+  docker build -f Dockerfile.ci -t booty-ci .
+  docker run --rm -e BOOTY_CI=1 -v "$PWD:/work" booty-ci ./bin/ci
+  bash tests/archlinux/simulate-bootstrap.sh
   exit 0
 fi
 
-docker build -f Dockerfile.ci -t booty-ci .
-docker run --rm -e BOOTY_CI=1 -v "$PWD:/work" booty-ci ./bin/ci
+shell_files=()
+while IFS= read -r file; do
+  shell_files+=("$file")
+done < <(
+  {
+    find bin lib -type f
+    find bootstrap -type f \( -name '*.sh' -o -perm -111 \)
+    find dotfiles -type f -perm -111
+    printf '%s\n' tests/test_helper.bash
+    find tests/helpers -type f -perm -111
+    find tests/archlinux -type f -name '*.sh'
+  } | sort -u
+)
+
+shellcheck -x -s bash -P SCRIPTDIR "${shell_files[@]}"
+bats tests
