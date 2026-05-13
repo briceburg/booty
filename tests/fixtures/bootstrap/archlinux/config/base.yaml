@@ -1,0 +1,20 @@
+features:
+  core:
+    pacman:
+      - base
+      - git
+    aur:
+      - yay-bin
+    services:
+      - resolved.service
+  steam:
+    pacman:
+      - steam
+    multilib: true
+  printing:
+    pacman:
+      - cups
+    services:
+      - cups.service
+multilib:
+  - lib32-mesa

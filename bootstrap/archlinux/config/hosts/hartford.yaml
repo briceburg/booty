@@ -1,0 +1,29 @@
+enabled_features:
+  - core
+  - gui
+  - xorg
+  - xmonad
+  - lang
+  - util
+  - virt
+  - printing
+  - intel-arc
+
+features:
+  printing:
+    pacman:
+      - hplip
+  intel-arc:
+    pacman:
+      - intel-media-driver
+      - libva-utils
+      - libvpl
+      - vpl-gpu-rt
+      - vulkan-intel
+      - vulkan-tools
+
+pacman:
+  - input-leap
+
+multilib:
+  - lib32-vulkan-intel

@@ -1,8 +1,7 @@
-user="${1:?expected user}"
 queue="hp-laserjet"
 serial="VND5J38873"
 
-usermod -aG lp "$user"
+usermod -aG lp "$BOOTSTRAP_USER"
 
 if lpstat -v 2>/dev/null | grep -Fq "serial=$serial"; then
   log "Printer with serial '$serial' already configured, skipping."

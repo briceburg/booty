@@ -1,0 +1,2 @@
+booty_url: file:///tmp/booty
+secrets_url: gcrypt::file:///tmp/booty-secrets

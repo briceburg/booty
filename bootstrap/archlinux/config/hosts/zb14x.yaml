@@ -1,4 +1,4 @@
-groups:
+enabled_features:
   - core
   - gui
   - xorg
@@ -9,13 +9,5 @@ groups:
   - laptop
   - wifi
 
-features: []
-
-packages:
+pacman:
   - sof-firmware
-
-aur:
-  - flyctl
-  - visual-studio-code-bin
-
-services: []

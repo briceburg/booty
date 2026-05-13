@@ -1,7 +1,8 @@
-group_defs:
+features:
   core:
-    packages:
+    pacman:
       - acpi
+      - age
       - base-devel
       - bash-completion
       - ca-certificates
@@ -9,6 +10,7 @@ group_defs:
       - fakeroot
       - git
       - gnupg
+      - go-yq
       - greetd
       - greetd-tuigreet
       - keyd
@@ -19,12 +21,20 @@ group_defs:
       - openssh
       - pinentry
       - reflector
+      - rsync
       - screen
       - sudo
       - tk
       - usbutils
+    aur:
+      - git-remote-gcrypt
+    services:
+      - reflector.timer
+      - systemd-resolved.service
+      - systemd-timesyncd.service
+      - keyd.service
   gui:
-    packages:
+    pacman:
       - firefox
       - flameshot
       - gnome-keyring
@@ -34,8 +44,10 @@ group_defs:
       - polkit-gnome
       - warp-terminal
       - wireplumber
+    aur:
+      - visual-studio-code-bin
   xorg:
-    packages:
+    pacman:
       - dmenu
       - dunst
       - lxappearance
@@ -50,7 +62,7 @@ group_defs:
       - xsel
       - xterm
   xmonad:
-    packages:
+    pacman:
       - adwaita-fonts
       - noto-fonts-emoji
       - ttf-croscore
@@ -59,26 +71,25 @@ group_defs:
     aur:
       - xsct
   laptop:
-    packages:
+    pacman:
       - acpilight
       - powertop
       - tlp
       - x86_energy_perf_policy
   wifi:
-    packages:
+    pacman:
       - iwd
     services:
       - iwd.service
   lang:
-    packages:
+    pacman:
       - go
       - nodejs
       - fnm
       - python
       - rustup
   util:
-    packages:
-      - age
+    pacman:
       - atuin
       - ddcutil
       - eza
@@ -93,35 +104,23 @@ group_defs:
       - vim
       - which
       - whois
+    aur:
+      - flyctl
   virt:
-    packages:
+    pacman:
       - dnsmasq
       - docker
       - docker-buildx
       - docker-compose
       - libvirt
-
-feature_defs:
   steam:
-    packages:
+    pacman:
       - lib32-mesa
       - lib32-systemd
       - steam
-    bootstrap:
-      enable_multilib: true
+    multilib: true
   printing:
+    pacman:
+      - cups
     services:
       - cups.service
-
-service_defs:
-  common:
-    - reflector.timer
-    - systemd-resolved.service
-    - systemd-timesyncd.service
-    - keyd.service
-
-groups: []
-features: []
-packages: []
-services: []
-aur: []

@@ -1,0 +1,4 @@
+enabled_features: []
+pacman:
+  - rsync
+  - sudo

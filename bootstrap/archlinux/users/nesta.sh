@@ -1,3 +1,6 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
 eval "$(fnm env --shell bash)"
 
 if ! fnm default >/dev/null 2>&1; then
