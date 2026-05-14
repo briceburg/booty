@@ -13,7 +13,8 @@ Include = /etc/pacman.d/mirrorlist
 EOF
 fi
 
-pacman -S --noconfirm --needed reflector
+pacman -Syu --noconfirm
+command -v reflector >/dev/null || pacman -S --noconfirm --needed reflector
 reflector_flags=(
   --country US
   --protocol https
@@ -25,7 +26,7 @@ reflector_flags=(
 echo "${reflector_flags[@]}" > /etc/xdg/reflector/reflector.conf
 
 grep -qF Reflector /etc/pacman.d/mirrorlist || {
-  log "building mirrorlist. please wait while they're rated."
+  log "building mirrorlist. please wait while mirrors are rated."
   reflector "${reflector_flags[@]}" --verbose
 }
 
@@ -51,9 +52,9 @@ id -u "$BOOTSTRAP_USER" &>/dev/null || {
 }
 
 # Ensure BOOTY_HOME is under the target user's home, not root's
-_home="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"
-[ -n "$_home" ] || die "cannot find home directory for $BOOTSTRAP_USER"
-BOOTY_HOME="$_home/.booty"
+user_home="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"
+[ -n "$user_home" ] || die "cannot find home directory for $BOOTSTRAP_USER"
+BOOTY_HOME="$user_home/.booty"
 export BOOTY_HOME
 
 usermod -aG docker,log,libvirt,rfkill,video,uucp,wheel "$BOOTSTRAP_USER"
@@ -67,9 +68,9 @@ $BOOTSTRAP_USER ALL=(ALL:ALL) NOPASSWD: /usr/bin/rm
 $BOOTSTRAP_USER ALL=(ALL:ALL) NOPASSWD: /usr/bin/rsync
 EOF
 
-as_user "$BOOTSTRAP_USER" mkdir -p "\$HOME/git/AUR" "\$HOME/bin" "\$HOME/tmp"
+as_user "$BOOTSTRAP_USER" mkdir -p "$user_home/git/AUR" "$user_home/bin" "$user_home/tmp"
 if ((${#BOOTSTRAP_AUR[@]})); then
-  as_user "$BOOTSTRAP_USER" "$BOOTY_HOME/booty/dotfiles/$BOOTY_OS/rootfs/usr/local/bin/aur-install" "${BOOTSTRAP_AUR[@]}"
+  as_user "$BOOTSTRAP_USER" "$BOOTY_ROOT/dotfiles/$BOOTY_OS/rootfs/usr/local/bin/aur-install" "${BOOTSTRAP_AUR[@]}"
 fi
 
 as_user "$BOOTSTRAP_USER" mkdir -p "$BOOTY_HOME"
@@ -78,7 +79,7 @@ as_user "$BOOTSTRAP_USER" mkdir -p "$BOOTY_HOME"
   [ -z "$BOOTSTRAP_SECRETS_URL" ] || printf "BOOTY_SECRETS_URL=\${BOOTY_SECRETS_URL:-%q}\n" "$BOOTSTRAP_SECRETS_URL"
 } | sudo -H -u "$BOOTSTRAP_USER" tee "$BOOTY_HOME/config" >/dev/null
 
-as_user "$BOOTSTRAP_USER" "$BOOTY_ROOT/bin/booty" setup || die "failed to setup booty"
+as_user "$BOOTSTRAP_USER" "$BOOTY_ROOT/bin/booty" setup
 
 ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 ln -sf "/usr/share/zoneinfo/$BOOTSTRAP_TIMEZONE" /etc/localtime

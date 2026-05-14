@@ -109,20 +109,25 @@ booty_setup(){
   mkdir -p "$BOOTY_HOME"
   if [ -d "$booty_repo/.git" ]; then
     if [ -n "${BOOTY_REPO_URL:-}" ]; then
-      dbg "updating remote origin -> $BOOTY_REPO_URL"
+      log "updating public checkout remote: $BOOTY_REPO_URL"
       git -C "$booty_repo" remote set-url origin "$BOOTY_REPO_URL" 2>/dev/null ||
         git -C "$booty_repo" remote add origin "$BOOTY_REPO_URL"
     fi
   else
     [ -n "${BOOTY_REPO_URL:-}" ] ||
       die "missing public checkout: $booty_repo; set BOOTY_REPO_URL or run install"
-    dbg "cloning $BOOTY_REPO_URL -> $booty_repo"
+    log "cloning public checkout: $BOOTY_REPO_URL -> $booty_repo"
     git clone "$BOOTY_REPO_URL" "$booty_repo"
   fi
 
-  booty_run "$booty_repo" pull
+  log "updating public checkout: $booty_repo"
+  pull_repo "$booty_repo" public
+  require_sources "$booty_repo" public
+  log "applying public checkout: $booty_repo"
+  booty_run "$booty_repo" apply
 
   if [ -n "${BOOTY_SECRETS_URL:-}" ]; then
+    dbg "booty_setup: BOOTY_SECRETS_URL=$BOOTY_SECRETS_URL"
     case "$BOOTY_SECRETS_URL" in
       gcrypt::*) ;;
       *) die "BOOTY_SECRETS_URL must use gcrypt::" ;;
@@ -138,8 +143,10 @@ booty_setup(){
     command -v git-remote-gcrypt >/dev/null 2>&1 ||
       die "booty setup requires git-remote-gcrypt for secrets checkout"
     if [ -d "$booty_secrets_repo/.git" ]; then
+      log "updating secrets checkout remote: $BOOTY_SECRETS_URL"
       git -C "$booty_secrets_repo" remote set-url origin "$BOOTY_SECRETS_URL"
     else
+      log "cloning secrets checkout: $BOOTY_SECRETS_URL -> $booty_secrets_repo"
       git clone "$BOOTY_SECRETS_URL" "$booty_secrets_repo"
     fi
   elif [ ! -d "$booty_secrets_repo/.git" ]; then
@@ -147,7 +154,10 @@ booty_setup(){
     return 0
   fi
 
-  BOOTY_MANIFEST_PREFIX=secrets booty_run "$booty_secrets_repo" pull
+  log "updating secrets checkout: $booty_secrets_repo"
+  pull_repo "$booty_secrets_repo" secrets
+  log "applying secrets checkout: $booty_secrets_repo"
+  BOOTY_MANIFEST_PREFIX=secrets booty_run "$booty_secrets_repo" apply
 }
 
 dotfiles(){ echo "$1/dotfiles/$BOOTY_OS"; }
@@ -197,6 +207,18 @@ source_dirs(){
 
 has_sources(){
   [ -n "$(source_dirs "$1" "$2")" ]
+}
+
+require_sources(){
+  local repo="$1" label="$2"
+  has_sources "$repo" home || has_sources "$repo" rootfs ||
+    die "$label checkout has no dotfiles for $BOOTY_OS/$BOOTY_HOST/$BOOTY_USER in $repo/dotfiles/$BOOTY_OS; see README.md#layout"
+}
+
+pull_repo(){
+  local repo="$1" label="$2" url
+  url="$(git -C "$repo" remote get-url origin 2>/dev/null)" || return 0
+  git -C "$repo" pull --ff-only || die "failed to update $label checkout from $url"
 }
 
 gitbooty(){
@@ -361,8 +383,12 @@ booty_run(){
         git -C "$repo" pull --ff-only
       ;&
     apply)
-      has_sources "$repo" home && gitbooty "$repo" home apply
-      has_sources "$repo" rootfs && apply_rootfs "$repo" apply
+      if has_sources "$repo" home; then
+        gitbooty "$repo" home apply
+      fi
+      if has_sources "$repo" rootfs; then
+        apply_rootfs "$repo" apply
+      fi
       ;;
     status|diff)
       rc=0

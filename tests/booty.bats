@@ -84,6 +84,24 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   [ "$(cat "$FIXTURE_HOME/.bashrc")" = "retargeted" ]
 }
 
+@test "booty setup rejects a public checkout with no dotfiles" {
+  public_remote="$TEST_ROOT/minimal-public"
+  mkdir -p "$public_remote"
+  writef "$public_remote" README.md minimal
+  git -C "$public_remote" init -q
+  git_id "$public_remote"
+  git_commit_all "$public_remote" "minimal public"
+  rm -rf "$FIXTURE_REPO"
+  git clone -q "$public_remote" "$FIXTURE_REPO"
+  : > "$BOOTY_HOME/config"
+
+  run env BOOTY_REPO_URL="file://$public_remote" BOOTY_SECRETS_URL= "$BOOTY_ROOT/bin/booty" setup
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"public checkout has no dotfiles"* ]]
+  [[ "$output" == *"README.md#layout"* ]]
+  [ "$(git -C "$FIXTURE_REPO" remote get-url origin)" = "file://$public_remote" ]
+}
+
 @test "booty setup skips secrets checkout when gpg is unconfigured" {
   rm -rf "$BOOTY_HOME/booty-secrets"
   : > "$BOOTY_HOME/config"

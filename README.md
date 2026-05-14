@@ -136,14 +136,30 @@ Run from a checkout without installing:
 
 ```sh
 ./bin/booty status
-./bin/booty-bootstrap config
+BOOTSTRAP_ROOT="$PWD/bootstrap/archlinux" ./bin/booty-bootstrap config
 ```
 
-Run the test suite (shellcheck + bats + bootstrap simulation):
+`booty-bootstrap` defaults to `~/.booty/booty/bootstrap/$BOOTY_OS`, matching an installed system. Set `BOOTSTRAP_ROOT` when testing bootstrap scripts from a development checkout.
+
+To run a real bootstrap from a development checkout before the public repo is available, point setup back at the local clone:
+
+```sh
+BOOTSTRAP_ROOT="$PWD/bootstrap/archlinux" \
+BOOTY_REPO_URL="file://$PWD" \
+DEBUG=1 \
+  ./bin/booty-bootstrap
+```
+
+Run shellcheck + bats:
 
 ```sh
 ./bin/ci
 ```
 
-[`gitbooty`](bin/gitbooty) is the rendering engine — it builds a layered file manifest, applies files via git plumbing, tracks drift, and writes machine edits back on `commit`.
+Run the Arch Linux bootstrap simulation:
 
+```sh
+BOOTY_CI=archlinux ./bin/ci
+```
+
+[`gitbooty`](bin/gitbooty) is the rendering engine — it builds a layered file manifest, applies files via git plumbing, tracks drift, and writes machine edits back on `commit`.

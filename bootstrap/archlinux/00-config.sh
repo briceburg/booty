@@ -1,5 +1,5 @@
 # shellcheck disable=SC2034 # sourced bootstrap state consumed by later fragments and config output
-command -v yq >/dev/null || pacman -Sy --noconfirm --needed go-yq
+command -v yq >/dev/null || pacman -Syu --noconfirm --needed go-yq
 bootstrap_common_config
 
 BOOTSTRAP_MULTILIB=false
