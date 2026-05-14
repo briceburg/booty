@@ -53,4 +53,7 @@ teardown() {
   '
   [ "$status" -eq 0 ]
   GNUPGHOME="$restored/.gnupg" gpg --list-secret-keys --with-colons | grep -q '^sec'
+
+  run env USER=nesta GNUPGHOME="$restored/.gnupg" "$BOOTY_ROOT/bin/booty" gpg import "$archive"
+  [ "$status" -eq 0 ]
 }

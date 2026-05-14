@@ -44,6 +44,8 @@ as_user(){
     BOOTY_HOST="$BOOTY_HOST" \
     BOOTSTRAP_CONFIG_DIR="${BOOTSTRAP_CONFIG_DIR:-}" \
     BOOTY_AGE_IDENTITY="${BOOTY_AGE_IDENTITY:-}" \
+    BOOTY_REPO_URL="${BOOTY_REPO_URL:-}" \
+    DEBUG="${DEBUG:-0}" \
     "$@"
 }
 

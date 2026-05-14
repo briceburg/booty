@@ -51,7 +51,9 @@ id -u "$BOOTSTRAP_USER" &>/dev/null || {
 }
 
 # Ensure BOOTY_HOME is under the target user's home, not root's
-BOOTY_HOME="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)/.booty"
+_home="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"
+[ -n "$_home" ] || die "cannot find home directory for $BOOTSTRAP_USER"
+BOOTY_HOME="$_home/.booty"
 export BOOTY_HOME
 
 usermod -aG docker,log,libvirt,rfkill,video,uucp,wheel "$BOOTSTRAP_USER"

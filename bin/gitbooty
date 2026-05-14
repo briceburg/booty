@@ -2,7 +2,12 @@
 set -eo pipefail
 
 log(){ echo "$*" >&2 ; }
-die(){ log "$*"; exit 1; }
+dbg(){ if [ "${DEBUG:-0}" = 1 ]; then echo "  [debug:$(basename "$0")] $*" >&2; fi; }
+die(){
+  log "$*"
+  [ "${DEBUG:-0}" = 1 ] || log "  (re-run with DEBUG=1 for a full trace)"
+  exit 1
+}
 
 render_tmp=""
 layers=()
@@ -186,6 +191,9 @@ init_render_index() {
   local manifest_file="$1"
   local rel source_rel src mode blob
 
+  if [ "${DEBUG:-0}" = 1 ]; then
+    dbg "init_render_index: manifest=$manifest_file ($(wc -l < "$manifest_file") entries)"
+  fi
   cleanup_render_index
   render_tmp="$(mktemp -d "${TMPDIR:-/tmp}/gitbooty.XXXXXX")"
   git init -q "$render_tmp/repo"
@@ -244,8 +252,8 @@ add_cmd() {
   repo_git add "$source_rel"
   ensure_data_dir
   drop_manifest_rel "$rel"
-  printf '%s\t%s\n' "$rel" "$source_rel" >> "$manifest"
-  sort -o "$manifest" "$manifest"
+  { [ -f "$manifest" ] && cat "$manifest"; printf '%s\t%s\n' "$rel" "$source_rel"; } | sort > "$manifest.tmp"
+  mv "$manifest.tmp" "$manifest"
 }
 
 rm_cmd() {
@@ -333,11 +341,20 @@ apply_cmd() {
 
   ensure_data_dir
   build_manifest "$next_manifest"
+  if [ "${DEBUG:-0}" = 1 ]; then
+    dbg "apply_cmd: manifest entries: $(wc -l < "$next_manifest") files -> $target_root"
+  fi
+  dbg "apply_cmd: layers=${layers[*]}"
+  dbg "apply_cmd: excludes=${excludes[*]}"
   prune_manifest_removals "$next_manifest"
   mv "$next_manifest" "$manifest"
   mkdir -p "$target_root"
   init_render_index "$manifest"
+  dbg "apply_cmd: checking out index into $prefix"
   render_git checkout-index -f -a --prefix="$prefix"
+  if [ "${DEBUG:-0}" = 1 ]; then
+    dbg "apply_cmd: done. files in target: $(find "$target_root" -type f 2>/dev/null | wc -l)"
+  fi
 }
 
 case "${1:-help}" in

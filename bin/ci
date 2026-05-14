@@ -1,36 +1,73 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
+export BOOTY_CI="${BOOTY_CI:-lint bats}"
+export DEBUG="${DEBUG:-0}"
+
 on_exit() {
   local status="$1"
-  [ "$status" -eq 0 ] &&
-    echo "✅ CI checks passed" >&2 ||
+  if [ "$status" -eq 0 ]; then
+    echo "✅ CI checks passed" >&2
+  else
     echo "❌ CI checks failed" >&2
+    [ "${DEBUG:-0}" = 1 ] || echo "  (re-run with DEBUG=1 for a full trace)" >&2
+  fi
 }
 
-cd "$(dirname "$0")/.." || exit 1
-trap 'on_exit "$?"' EXIT
+[ "${BOOTY_CI_CONTAINER:-0}" = 1 ] || trap 'on_exit "$?"' EXIT
 
-if [ "${BOOTY_CI:-0}" != "1" ]; then
-  docker build -f Dockerfile.ci -t booty-ci .
-  docker run --rm -e BOOTY_CI=1 -v "$PWD:/work" booty-ci ./bin/ci
-  bash tests/archlinux/simulate-bootstrap.sh
+test/lint() {
+  echo "==> running shellcheck on scripts" >&2
+  mapfile -t shell_files < <(
+    {
+      find bin lib -type f
+      find bootstrap -type f \( -name '*.sh' -o -perm -111 \)
+      find dotfiles -type f -perm -111
+      printf '%s\n' install tests/test_helper.bash
+      find tests/helpers -type f -perm -111
+      find tests/archlinux -type f -name '*.sh'
+      find tests/fixtures -type f \( -name '*.sh' -o -perm -111 \)
+    } | sort -u
+  )
+  shellcheck -x -s bash -P SCRIPTDIR "${shell_files[@]}"
+}
+
+test/bats() {
+  echo "==> running bats tests" >&2
+  bats tests
+}
+
+test/archlinux() {
+  local image="${BOOTSTRAP_ARCHLINUX_IMAGE:-archlinux:latest}"
+  echo "==> archlinux bootstrap simulation (image: $image)" >&2
+  docker run --rm -i \
+    --volume "$PWD:/work:ro" \
+    -e DEBUG \
+    "$image" \
+    bash /work/tests/archlinux/simulate-bootstrap.sh
+}
+
+if [ "${BOOTY_CI_CONTAINER:-0}" = 1 ]; then
+  for suite in $BOOTY_CI; do "test/$suite"; done
   exit 0
 fi
 
-shell_files=()
-while IFS= read -r file; do
-  shell_files+=("$file")
-done < <(
-  {
-    find bin lib -type f
-    find bootstrap -type f \( -name '*.sh' -o -perm -111 \)
-    find dotfiles -type f -perm -111
-    printf '%s\n' tests/test_helper.bash
-    find tests/helpers -type f -perm -111
-    find tests/archlinux -type f -name '*.sh'
-  } | sort -u
-)
+cd "$(dirname "$0")/.." || exit 1
+ci_suites=()
+for suite in $BOOTY_CI; do
+  case "$suite" in
+    lint|bats) ci_suites+=("$suite") ;;
+    archlinux) test/archlinux ;;
+    *) echo "unknown BOOTY_CI suite: $suite" >&2; exit 2 ;;
+  esac
+done
 
-shellcheck -x -s bash -P SCRIPTDIR "${shell_files[@]}"
-bats tests
+if [ "${#ci_suites[@]}" -gt 0 ]; then
+  docker build -f Dockerfile.ci -t booty-ci .
+  BOOTY_CI="${ci_suites[*]}" docker run --rm \
+    -e BOOTY_CI_CONTAINER=1 \
+    -e BOOTY_CI \
+    -e DEBUG \
+    -v "$PWD:/work" \
+    booty-ci ./bin/ci
+fi

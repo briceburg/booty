@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -eo pipefail
+
+[ "$(cat /etc/ci-test.conf)" = ci-bootstrap-test ]

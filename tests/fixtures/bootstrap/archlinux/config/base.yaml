@@ -7,6 +7,15 @@ features:
       - yay-bin
     services:
       - resolved.service
+  ci:
+    pacman:
+      - age
+      - base-devel
+      - gnupg
+      - rsync
+      - sudo
+    aur:
+      - git-remote-gcrypt
   steam:
     pacman:
       - steam

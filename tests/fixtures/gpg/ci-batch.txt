@@ -1,0 +1,6 @@
+%no-protection
+Key-Type: RSA
+Key-Length: 2048
+Name-Real: CI Test
+Name-Email: ci@localhost
+Expire-Date: 0

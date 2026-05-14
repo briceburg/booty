@@ -26,10 +26,21 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   [ "$(cat "$FIXTURE_HOME/.bashrc")" = "shell" ]
 }
 
+@test "booty pull prunes files removed from rootfs sources" {
+  booty pull >/dev/null
+  [ -f "$FIXTURE_ROOT/etc/example.conf" ]
+
+  rm -f "$FIXTURE_REPO/dotfiles/archlinux/rootfs/etc/example.conf"
+
+  run booty pull
+  [ "$status" -eq 0 ]
+  [ ! -e "$FIXTURE_ROOT/etc/example.conf" ]
+}
+
 @test "booty setup clones public checkout, applies it, and sets up secrets" {
   public_remote="$TEST_ROOT/public-remote"
   secrets_remote="$TEST_ROOT/secrets-remote"
-  fixture dotfiles/public "$public_remote/dotfiles"
+  fixture dotfiles/archlinux "$public_remote/dotfiles/archlinux"
   writef "$secrets_remote" "dotfiles/archlinux/rootfs/home/nesta/.private" secrets-bootstrap
   git -C "$public_remote" init -q
   git_id "$public_remote"
@@ -50,6 +61,27 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   [ -d "$BOOTY_HOME/booty-secrets/.git" ]
   [ "$(cat "$FIXTURE_HOME/.bashrc")" = "shell" ]
   [ "$(cat "$FIXTURE_HOME/.private")" = "secrets-bootstrap" ]
+}
+
+@test "booty setup retargets an existing public checkout remote" {
+  old_remote="$TEST_ROOT/old-public"
+  new_remote="$TEST_ROOT/new-public"
+  fixture dotfiles/archlinux "$old_remote/dotfiles/archlinux"
+  git -C "$old_remote" init -q
+  git_id "$old_remote"
+  git_commit_all "$old_remote" "seed old public"
+  rm -rf "$FIXTURE_REPO"
+  git clone -q "$old_remote" "$FIXTURE_REPO"
+  git clone -q "$old_remote" "$new_remote"
+  git_id "$new_remote"
+  writef "$new_remote" "dotfiles/archlinux/rootfs/home/nesta/.bashrc" retargeted
+  git_commit_all "$new_remote" "retarget public"
+  : > "$BOOTY_HOME/config"
+
+  run env BOOTY_REPO_URL="file://$new_remote" "$BOOTY_ROOT/bin/booty" setup
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$FIXTURE_REPO" remote get-url origin)" = "file://$new_remote" ]
+  [ "$(cat "$FIXTURE_HOME/.bashrc")" = "retargeted" ]
 }
 
 @test "booty setup skips secrets checkout when gpg is unconfigured" {

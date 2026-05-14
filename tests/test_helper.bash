@@ -55,14 +55,14 @@ setup_booty_public() {
   writef "$BOOTY_HOME" config \
     "BOOTY_REPO_URL=\${BOOTY_REPO_URL:-file://$FIXTURE_REPO}" \
     "BOOTY_SECRETS_URL=\${BOOTY_SECRETS_URL:-gcrypt::file://$TEST_ROOT/secrets-remote}"
-  fixture dotfiles/public "$FIXTURE_REPO/dotfiles"
+  fixture dotfiles/archlinux "$FIXTURE_REPO/dotfiles/archlinux"
   git -C "$FIXTURE_REPO" init -q
 }
 
 setup_booty_secrets() {
   setup_booty_public
   export FIXTURE_SECRETS="$BOOTY_HOME/booty-secrets"
-  fixture dotfiles/secrets "$FIXTURE_SECRETS/dotfiles"
+  fixture dotfiles/secrets/archlinux "$FIXTURE_SECRETS/dotfiles/archlinux"
   git -C "$FIXTURE_SECRETS" init -q
 }
 

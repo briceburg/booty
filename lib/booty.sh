@@ -1,5 +1,10 @@
 log(){ echo "$*" >&2; }
-die(){ log "$*"; exit 1; }
+dbg(){ if [ "${DEBUG:-0}" = 1 ]; then echo "  [debug:$(basename "$0")] $*" >&2; fi; }
+die(){
+  log "$*"
+  [ "${DEBUG:-0}" = 1 ] || log "  (re-run with DEBUG=1 for a full trace)"
+  exit 1
+}
 
 BOOTY_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 export BOOTY_ROOT
@@ -100,15 +105,18 @@ booty_gpg(){
 }
 
 booty_setup(){
+  dbg "booty_setup: BOOTY_HOME=$BOOTY_HOME BOOTY_REPO_URL=${BOOTY_REPO_URL:-} BOOTY_HOST=$BOOTY_HOST BOOTY_USER=$BOOTY_USER"
   mkdir -p "$BOOTY_HOME"
   if [ -d "$booty_repo/.git" ]; then
     if [ -n "${BOOTY_REPO_URL:-}" ]; then
+      dbg "updating remote origin -> $BOOTY_REPO_URL"
       git -C "$booty_repo" remote set-url origin "$BOOTY_REPO_URL" 2>/dev/null ||
         git -C "$booty_repo" remote add origin "$BOOTY_REPO_URL"
     fi
   else
     [ -n "${BOOTY_REPO_URL:-}" ] ||
       die "missing public checkout: $booty_repo; set BOOTY_REPO_URL or run install"
+    dbg "cloning $BOOTY_REPO_URL -> $booty_repo"
     git clone "$BOOTY_REPO_URL" "$booty_repo"
   fi
 
@@ -194,6 +202,7 @@ has_sources(){
 gitbooty(){
   local repo="$1" area="$2" target writeback dir dirs=() layers exclude=
   shift 2
+  dbg "gitbooty $area: repo=$repo BOOTY_HOST=$BOOTY_HOST BOOTY_USER=$BOOTY_USER"
 
   case "$area" in
     home)
@@ -208,6 +217,7 @@ gitbooty(){
 
   while IFS= read -r dir; do dirs+=("$dir"); done < <(source_dirs "$repo" "$area")
   ((${#dirs[@]})) || dirs=("$writeback")
+  dbg "gitbooty $area: layers=(${dirs[*]}) exclude=$exclude target=$target"
 
   booty_tmp_env
   layers="$(printf '%s\n' "${dirs[@]}")"
@@ -258,19 +268,30 @@ snapshot_rootfs(){
 }
 
 apply_rootfs(){
-  local repo="$1" tmp render old new rel _
+  local repo="$1" tmp render old new rel _ rsync_opts=(-rlptD)
   shift
   live_rootfs || { gitbooty "$repo" rootfs "$@"; return; }
+
+  sudo -n rsync --version >/dev/null 2>&1 \
+    || die "sudo rsync not permitted for $USER — check /etc/sudoers.d/user-$USER"
+  if [ "${DEBUG:-0}" = 1 ]; then rsync_opts+=(--verbose); fi
 
   booty_tmp tmp apply
   render="$tmp/root"
   mkdir -p "$render"
-  old="$tmp/old.tsv"; new="$(manifest rootfs)"
-  [ -f "$new" ] && cp "$new" "$old"
+  new="$(manifest rootfs)"
+  old=""; [ -f "$new" ] && { old="$tmp/old.tsv"; cp "$new" "$old"; }
+  dbg "apply_rootfs: rendering to $render"
   BOOTY_TARGET_ROOT="$render" gitbooty "$repo" rootfs "$@"
-  sudo rsync -a "$render"/ /
-  [ -f "$old" ] && awk -F '\t' 'FILENAME == ARGV[1] { keep[$1]=1; next } $1 && !($1 in keep) { print $1 }' "$new" "$old" |
-    while IFS= read -r rel; do sudo rm -f -- "/$rel"; done
+  if [ "${DEBUG:-0}" = 1 ]; then
+    dbg "apply_rootfs: rendered files: $(find "$render" -type f | sort | tr '\n' ' ')"
+  fi
+  dbg "apply_rootfs: sudo rsync ${rsync_opts[*]} $render/ /"
+  sudo rsync "${rsync_opts[@]}" "$render"/ /
+  if [ -f "$old" ]; then
+    awk -F '\t' 'FILENAME == ARGV[1] { keep[$1]=1; next } $1 && !($1 in keep) { print $1 }' "$new" "$old" |
+      while IFS= read -r rel; do sudo rm -f -- "/$rel"; done
+  fi
 }
 
 add_rootfs(){

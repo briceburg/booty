@@ -13,6 +13,7 @@ user_config="$BOOTSTRAP_ROOT/config/users/$BOOTSTRAP_USER.yaml"
 bootstrap_need_yq
 [ -f "$host_config" ] || die "missing host definition: $host_config"
 [ -f "$user_config" ] || die "missing user definition: $user_config"
+[ -f "$BOOTSTRAP_ROOT/config/base.yaml" ] || die "missing base config: $BOOTSTRAP_ROOT/config/base.yaml"
 
 yaml_merge "$BOOTSTRAP_ROOT/config/base.yaml" "$host_config" "$user_config"
 add_yaml BOOTSTRAP_FEATURES .enabled_features
