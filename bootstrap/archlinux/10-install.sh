@@ -39,43 +39,32 @@ fi
 
 ((${#BOOTSTRAP_PACMAN[@]})) && pacman -S --noconfirm --needed "${BOOTSTRAP_PACMAN[@]}"
 
-log "configuring existing user: $BOOTSTRAP_USER"
+log "configuring user: $BOOTSTRAP_USER"
 
-id -u "$BOOTSTRAP_USER" &>/dev/null || die "missing user: $BOOTSTRAP_USER"
+id -u "$BOOTSTRAP_USER" &>/dev/null || {
+  useradd --create-home --shell /bin/bash "$BOOTSTRAP_USER"
+  passwd -l "$BOOTSTRAP_USER" >/dev/null
+}
 
 user_home="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"
 [ -n "$user_home" ] || die "cannot find home directory for $BOOTSTRAP_USER"
 BOOTY_HOME="$user_home/.booty"
 export BOOTY_HOME
 
-add_user_groups "$BOOTSTRAP_USER" docker log libvirt rfkill video uucp wheel
+[ "$BOOTSTRAP_USER" = root ] || add_user_groups "$BOOTSTRAP_USER" docker log libvirt rfkill video uucp wheel
 
-as_user "$BOOTSTRAP_USER" mkdir -p "$user_home/git/AUR" "$user_home/bin" "$user_home/tmp"
-if ((${#BOOTSTRAP_AUR[@]})); then
-  as_user "$BOOTSTRAP_USER" sudo -v
-  as_user "$BOOTSTRAP_USER" "$BOOTY_ROOT/dotfiles/$BOOTY_OS/rootfs/usr/local/bin/aur-install" "${BOOTSTRAP_AUR[@]}"
-fi
-
-as_user "$BOOTSTRAP_USER" mkdir -p "$BOOTY_HOME"
+as_user "$BOOTSTRAP_USER" mkdir -p "$BOOTY_HOME" "$user_home/bin" "$user_home/git/AUR" "$user_home/tmp"
 {
   printf "BOOTY_REPO_URL=\${BOOTY_REPO_URL:-%q}\n" "$BOOTY_REPO_URL"
   [ -z "$BOOTY_SECRETS_URL" ] || printf "BOOTY_SECRETS_URL=\${BOOTY_SECRETS_URL:-%q}\n" "$BOOTY_SECRETS_URL"
-} | sudo -H -u "$BOOTSTRAP_USER" tee "$BOOTY_HOME/config" >/dev/null
+} | as_user "$BOOTSTRAP_USER" tee "$BOOTY_HOME/config" >/dev/null
 log "wrote booty runtime config: $BOOTY_HOME/config"
 
-[ ! -e /run/systemd/resolve/stub-resolv.conf ] || ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-ln -sf "/usr/share/zoneinfo/$BOOTSTRAP_TIMEZONE" /etc/localtime
-ln -sf /usr/bin/vim /usr/bin/vi
-
-if systemctl list-units >/dev/null 2>&1; then
-  if ((${#BOOTSTRAP_SERVICES[@]})); then systemctl enable --now "${BOOTSTRAP_SERVICES[@]}"; fi
+if [ ! -d "$BOOTY_HOME/booty/.git" ]; then
+  log "cloning target checkout: $BOOTY_REPO_URL -> $BOOTY_HOME/booty"
+  as_user "$BOOTSTRAP_USER" git clone "$BOOTY_REPO_URL" "$BOOTY_HOME/booty"
 else
-  log "skipping service enablement: systemd is not running"
+  chown -R "$BOOTSTRAP_USER:" "$BOOTY_HOME"
 fi
 
-if has steam "${BOOTSTRAP_FEATURES[@]}"; then
-  [ -e "/etc/sysctl.d/80-gamecompatibility.conf" ] || {
-    echo "vm.max_map_count = 2147483642" > /etc/sysctl.d/80-gamecompatibility.conf
-    sysctl --system
-  }
-fi
+export BOOTSTRAP_TARGET_READY=1

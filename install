@@ -3,7 +3,6 @@ set -eo pipefail
 
 repo_url="${BOOTY_REPO_URL:-https://github.com/briceburg/booty.git}"
 
-[ "$EUID" -ne 0 ] || { echo "run install as the target sudo-capable user, not root" >&2; exit 1; }
 command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
 
 booty_root="${BOOTY_HOME:-$HOME/.booty}"
@@ -14,6 +13,11 @@ if [ -d "$booty_repo_root/.git" ]; then
 else
   mkdir -p "$(dirname "$booty_repo_root")"
   git clone "$repo_url" "$booty_repo_root"
+fi
+
+if [ ! -t 0 ] && { exec 3</dev/tty; } 2>/dev/null; then
+  exec <&3
+  exec 3<&-
 fi
 
 BOOTY_HOME="$booty_root" "$booty_repo_root/bin/booty-bootstrap"

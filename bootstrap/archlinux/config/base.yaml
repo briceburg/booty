@@ -20,6 +20,7 @@ features:
       - man-db
       - openssh
       - pinentry
+      - python-docutils
       - reflector
       - rsync
       - screen

@@ -17,10 +17,9 @@ prep_config_dir(){
   own_config "$BOOTSTRAP_CONFIG_DIR"
 }
 
-# shellcheck disable=SC2016 # yq expression, not a shell expansion
 yaml_merge(){
   prep_config_dir
-  yq eval-all -o=yaml '. as $item ireduce ({}; . *+ $item)' "$@" > "$BOOTSTRAP_CONFIG"
+  yq eval-all -o=yaml ". as \$item ireduce ({}; . *+ \$item)" "$@" > "$BOOTSTRAP_CONFIG"
   own_config "$BOOTSTRAP_CONFIG"
 }
 
@@ -43,8 +42,11 @@ bootstrap_need_yq(){
 }
 
 bootstrap_common_config(){
-  BOOTSTRAP_USER="${BOOTSTRAP_USER:-${SUDO_USER:-${USER:-$(id -un)}}}"
-  [ "$BOOTSTRAP_USER" != root ] || die "run booty-bootstrap as the target sudo-capable user, not root"
+  [ -n "${BOOTSTRAP_USER:-}" ] || {
+    ask user ""
+    BOOTSTRAP_USER="$(<"$BOOTSTRAP_CONFIG_DIR/user")"
+  }
+  [ -n "$BOOTSTRAP_USER" ] || die "set BOOTSTRAP_USER to the target dotfile user"
   BOOTY_USER="$BOOTSTRAP_USER"
   ask timezone "US/Mountain"
   BOOTSTRAP_TIMEZONE="$(<"$BOOTSTRAP_CONFIG_DIR/timezone")"
@@ -68,12 +70,17 @@ as_user(){
     BOOTY_REPO_URL \
     BOOTY_ROOT \
     BOOTY_SECRETS_URL \
+    BOOTY_SKIP_ROOTFS \
     BOOTY_USER \
     DEBUG
   do
     env+=("$name=${!name:-}")
   done
-  sudo -H -u "$user" env "${env[@]}" "$@"
+  if [ "$EUID" -eq 0 ] && [ "$user" = root ]; then
+    env "${env[@]}" "$@"
+  else
+    sudo -H -u "$user" env "${env[@]}" "$@"
+  fi
 }
 
 sudo_env_exec(){
@@ -97,6 +104,23 @@ source_bootstrap(){
   local script="$1"
   [ -f "$script" ] || return 0
   log "running ${script#"$BOOTSTRAP_ROOT/"}"
-  # shellcheck source=/dev/null
-  . "$script"
+  source_file "$script"
+}
+
+bootstrap_apply_rootfs(){
+  local path user_home
+  [ "${BOOTSTRAP_TARGET_READY:-0}" = 1 ] || return 0
+  [ "${BOOTSTRAP_ROOTFS_APPLIED:-0}" != 1 ] || return 0
+  user_home="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"
+  [ -n "$user_home" ] || die "cannot find home directory for $BOOTSTRAP_USER"
+  [ -x "$BOOTY_HOME/booty/bin/booty" ] || die "missing target checkout command: $BOOTY_HOME/booty/bin/booty"
+
+  log "applying bootstrap rootfs from target checkout"
+  env BOOTY_USER="$BOOTSTRAP_USER" HOME="$user_home" BOOTY_HOME="$BOOTY_HOME" BOOTY_SKIP_HOME=1 "$BOOTY_HOME/booty/bin/booty" apply
+  if [ "$EUID" -eq 0 ]; then
+    for path in "$BOOTY_HOME/tmp" "$user_home/.local"; do
+      [ ! -e "$path" ] || chown -R "$BOOTSTRAP_USER:" "$path"
+    done
+  fi
+  BOOTSTRAP_ROOTFS_APPLIED=1
 }

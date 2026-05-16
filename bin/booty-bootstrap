@@ -2,7 +2,7 @@
 set -eo pipefail
 
 . "$(dirname "$(readlink -f "$0")")/../lib/booty.sh"
-. "$BOOTY_ROOT/lib/booty-bootstrap.sh"
+source_file "$BOOTY_ROOT/lib/booty-bootstrap.sh"
 
 cmd="${1:-bootstrap}"
 
@@ -12,6 +12,8 @@ case "$cmd" in
 usage: booty-bootstrap [bootstrap|config|help]
 
 Bootstraps this machine with $BOOTSTRAP_ROOT.
+BOOTSTRAP_USER selects the dotfile/OS user.
+BOOTY_REPO_URL is required unless user config defines repo_url.
 EOF
     exit 0
     ;;
@@ -39,19 +41,21 @@ export BOOTSTRAP_CMD="$cmd"
 if [ "$BOOTSTRAP_CMD" = config ]; then
   config_script="$BOOTSTRAP_ROOT/00-config.sh"
   [ -f "$config_script" ] || die "missing bootstrap config script: $config_script"
-  # shellcheck source=/dev/null
-  . "$config_script"
+  source_file "$config_script"
   bootstrap_dump_env
   exit 0
 fi
 
-shopt -s nullglob
 scripts=("$BOOTSTRAP_ROOT"/[0-9][0-9]-*.sh)
-((${#scripts[@]})) || die "missing bootstrap scripts: $BOOTSTRAP_ROOT"
+[ -f "${scripts[0]}" ] || die "missing bootstrap scripts: $BOOTSTRAP_ROOT"
 
 for script in "${scripts[@]}"; do
   source_bootstrap "$script"
+  bootstrap_apply_rootfs
 done
+
+[ "${BOOTSTRAP_TARGET_READY:-0}" = 1 ] || die "bootstrap scripts did not prepare target checkout"
+bootstrap_apply_rootfs
 
 script="$BOOTSTRAP_ROOT/users/$BOOTSTRAP_USER.sh"
 [ ! -f "$script" ] || {
@@ -62,5 +66,5 @@ script="$BOOTSTRAP_ROOT/users/$BOOTSTRAP_USER.sh"
 source_bootstrap "$BOOTSTRAP_ROOT/hosts/$BOOTY_HOST.sh"
 
 log "running booty sync as $BOOTSTRAP_USER"
-as_user "$BOOTSTRAP_USER" "$BOOTY_ROOT/bin/booty" sync
+BOOTY_SKIP_ROOTFS=1 as_user "$BOOTSTRAP_USER" "$BOOTY_HOME/booty/bin/booty" sync
 log "[OK] Bootstrap Complete"

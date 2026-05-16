@@ -33,8 +33,7 @@ gitbooty_layered() {
 @test "gitbooty pull updates the repo before applying files" {
   remote="$TEST_ROOT/remote"
   work="$TEST_ROOT/work"
-  git init -q "$remote"
-  git_id "$remote"
+  git_init "$remote"
   writef "$remote" "layer1/pulled.conf" original
   git_commit_all "$remote" "seed"
   git clone -q "$remote" "$work"
@@ -105,7 +104,7 @@ gitbooty_layered() {
 
 @test "gitbooty rm removes tracked target, source, and manifest entry" {
   writef "$FIXTURE_REPO" "layer1/.bashrc" shell
-  git -C "$FIXTURE_REPO" init -q
+  git_init "$FIXTURE_REPO"
 
   gitbooty pull >/dev/null
 
@@ -119,7 +118,7 @@ gitbooty_layered() {
 @test "gitbooty mv preserves symlink source and manifest mapping" {
   writef "$FIXTURE_REPO" "layer1/bin/tool" tool
   ln -s bin/tool "$FIXTURE_REPO/layer1/tool-link"
-  git -C "$FIXTURE_REPO" init -q
+  git_init "$FIXTURE_REPO"
 
   gitbooty pull >/dev/null
 
@@ -137,7 +136,7 @@ gitbooty_layered() {
   export HOME="$FIXTURE_TARGET"
   writef "$FIXTURE_TARGET" ".bashrc" shell
   writef "$FIXTURE_TARGET" "relative.conf" config
-  git -C "$FIXTURE_REPO" init -q
+  git_init "$FIXTURE_REPO"
 
   run gitbooty add "~/.bashrc"
   [ "$status" -eq 0 ]
@@ -155,8 +154,7 @@ gitbooty_layered() {
 @test "gitbooty commit writes target changes, mode, and symlinks to source" {
   xwritef "$FIXTURE_REPO" "layer1/bin/tool" original
   writef "$FIXTURE_REPO" "layer1/plain.conf" source
-  git -C "$FIXTURE_REPO" init -q
-  git_id "$FIXTURE_REPO"
+  git_init "$FIXTURE_REPO"
 
   gitbooty pull >/dev/null
 
@@ -182,19 +180,18 @@ gitbooty_layered() {
 }
 
 @test "gitbooty passes repo-only git commands through" {
-  git -C "$FIXTURE_REPO" init -q
-  git_id "$FIXTURE_REPO"
+  git_init "$FIXTURE_REPO"
   writef "$FIXTURE_REPO" "layer1/.bashrc" shell
   git -C "$FIXTURE_REPO" add layer1/.bashrc
   git -C "$FIXTURE_REPO" commit -qm "seed"
 
   run gitbooty branch --show-current
   [ "$status" -eq 0 ]
-  [[ "$output" == "master" || "$output" == "main" ]]
+  [[ "$(last_output_line)" == "master" || "$(last_output_line)" == "main" ]]
 
   run gitbooty config user.name
   [ "$status" -eq 0 ]
-  [ "$output" = "Test User" ]
+  [ "$(last_output_line)" = "Test User" ]
 
   run gitbooty log --oneline -1
   [ "$status" -eq 0 ]
@@ -202,7 +199,7 @@ gitbooty_layered() {
 }
 
 @test "gitbooty does not pass through repo worktree commands" {
-  git -C "$FIXTURE_REPO" init -q
+  git_init "$FIXTURE_REPO"
 
   run gitbooty checkout -b risky
   [ "$status" -ne 0 ]

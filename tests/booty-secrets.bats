@@ -47,7 +47,7 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
   custom_home="$TEST_ROOT/custom-home"
   secrets_dir="$custom_home/booty-secrets"
   writef "$secrets_dir" "dotfiles/archlinux/rootfs/home/nesta/.private" custom
-  git -C "$secrets_dir" init -q
+  git_init "$secrets_dir"
 
   run env BOOTY_HOME="$custom_home" "$BOOTY_ROOT/bin/booty-secrets" pull
   [ "$status" -eq 0 ]
@@ -56,7 +56,7 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
 @test "booty-secrets help does not clone missing secrets checkout" {
   secrets_remote="$TEST_ROOT/secrets-remote"
-  git init -q "$secrets_remote"
+  git_init "$secrets_remote"
   rm -rf "$FIXTURE_SECRETS"
 
   run env BOOTY_SECRETS_URL="$secrets_remote" "$BOOTY_ROOT/bin/booty-secrets" help
@@ -73,8 +73,13 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
   [[ "$output" == *"missing secrets checkout"* ]]
 }
 
-@test "booty-secrets refuses direct root execution" {
-  run env USER=root "$BOOTY_ROOT/bin/booty-secrets" pull
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"run booty as your regular user"* ]]
+@test "booty-secrets supports root as a dotfile user" {
+  fake gpg
+  root_home="$FIXTURE_ROOT/root"
+  mkdir -p "$root_home"
+  writef "$FIXTURE_SECRETS" "dotfiles/archlinux/rootfs/home/root/.private" root-secret
+
+  run env USER=root BOOTY_USER=root HOME="$root_home" BOOTY_HOME="$BOOTY_HOME" BOOTY_HOME_TARGET_ROOT="$root_home" "$BOOTY_ROOT/bin/booty-secrets" pull
+  [ "$status" -eq 0 ]
+  file_eq "$root_home/.private" root-secret
 }
