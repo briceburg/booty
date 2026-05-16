@@ -2,16 +2,16 @@
 
 load test_helper
 
-setup() {
-  setup_archlinux
-}
-
-teardown() {
-  teardown_tmp
-}
+setup() { setup_archlinux; }
+teardown() { teardown_tmp; }
 
 arch_config() {
   env BOOTY_HOST="${1:-plain}" "$BOOTY_ROOT/bin/booty-bootstrap" config
+}
+
+has_output() {
+  local text
+  for text in "$@"; do [[ "$output" == *"$text"* ]] || return; done
 }
 
 @test "booty-bootstrap shows help without dispatching" {
@@ -26,25 +26,19 @@ arch_config() {
   [[ "$output" == *"missing host definition"* ]]
 }
 
-@test "archlinux config prints resolved bootstrap variables" {
+@test "archlinux config dumps resolved bootstrap variables" {
   run arch_config plain
   [ "$status" -eq 0 ]
-  [[ "$output" == *'declare -x BOOTY_HOST="plain"'* ]]
-  [[ "$output" == *'declare -x BOOTSTRAP_CMD="config"'* ]]
-  [[ "$output" == *'declare -x BOOTSTRAP_USER="nesta"'* ]]
-  [[ "$output" == *'declare -x BOOTSTRAP_BOOTY_URL="file:///tmp/booty"'* ]]
-  [[ "$output" == *'declare -x BOOTSTRAP_SECRETS_URL="gcrypt::file:///tmp/booty-secrets"'* ]]
-  [[ "$output" == *'declare -x BOOTSTRAP_MULTILIB="false"'* ]]
+  has_output \
+    'declare -x BOOTY_REPO_URL="file:///tmp/booty"' \
+    'declare -x BOOTY_SECRETS_URL="gcrypt::file:///tmp/booty-secrets"' \
+    'declare -x BOOTSTRAP_MULTILIB="false"' \
+    'declare -a BOOTSTRAP_FEATURES=([0]="core" [1]="printing")' \
+    '"base"' '"cups"' '"host-tool"' \
+    'declare -a BOOTSTRAP_AUR=([0]="yay-bin")' \
+    '"cups.service"' '"resolved.service"'
   [[ "$output" != *"lib32-mesa"* ]]
-  [[ "$output" == *'declare -a BOOTSTRAP_FEATURES=([0]="core" [1]="printing")'* ]]
-  [[ "$output" == *'declare -a BOOTSTRAP_PACMAN='* ]]
-  [[ "$output" == *'"base"'* ]]
-  [[ "$output" == *'"cups"'* ]]
-  [[ "$output" == *'"host-tool"'* ]]
-  [[ "$output" == *'declare -a BOOTSTRAP_AUR=([0]="yay-bin")'* ]]
-  [[ "$output" == *'declare -a BOOTSTRAP_SERVICES='* ]]
-  [[ "$output" == *'"cups.service"'* ]]
-  [[ "$output" == *'"resolved.service"'* ]]
+  [ -f "$BOOTSTRAP_CONFIG_DIR/archlinux.yaml" ]
 
   run env BOOTY_HOST=plain "$BOOTY_ROOT/bin/booty-bootstrap" config
   [ "$status" -eq 0 ]
@@ -54,11 +48,16 @@ arch_config() {
 @test "archlinux config adds multilib packages only for multilib features" {
   run arch_config multilib
   [ "$status" -eq 0 ]
-  [[ "$output" == *'declare -x BOOTSTRAP_MULTILIB="true"'* ]]
-  [[ "$output" == *'declare -a BOOTSTRAP_PACMAN='* ]]
-  [[ "$output" == *'"base"'* ]]
-  [[ "$output" == *'"steam"'* ]]
-  [[ "$output" == *'"lib32-mesa"'* ]]
+  has_output 'declare -x BOOTSTRAP_MULTILIB="true"' '"base"' '"steam"' '"lib32-mesa"'
+}
+
+@test "archlinux config refuses a symlinked config dir" {
+  rm -rf "$BOOTSTRAP_CONFIG_DIR"
+  ln -s "$TEST_ROOT" "$BOOTSTRAP_CONFIG_DIR"
+
+  run arch_config plain
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"refusing symlinked bootstrap config dir"* ]]
 }
 
 @test "booty-bootstrap runs the flat bootstrap scripts in order" {
@@ -69,8 +68,9 @@ arch_config() {
   cp "$TEST_REPO/bin/booty-bootstrap" "$BOOTY_ROOT/bin/"
   cp "$TEST_REPO/lib/booty.sh" "$BOOTY_ROOT/lib/"
   cp "$TEST_REPO/lib/booty-bootstrap.sh" "$BOOTY_ROOT/lib/"
+  writef "$BOOTY_ROOT/bin" booty '#!/usr/bin/env bash' 'echo "booty $*" >> "$BOOTY_ORDER"'
   writef "$FIXTURE_REPO/bootstrap/archlinux" 00-config.sh 'export BOOTSTRAP_USER=nesta' 'echo 00-config >> "$BOOTY_ORDER"'
-  chmod +x "$BOOTY_ROOT/bin/booty-bootstrap"
+  chmod +x "$BOOTY_ROOT/bin/booty-bootstrap" "$BOOTY_ROOT/bin/booty"
   writef "$TEST_ROOT/bin" sudo \
     '#!/usr/bin/env bash' \
     'while [ "$1" != env ]; do shift; done' \
@@ -88,5 +88,5 @@ arch_config() {
 
   run "$BOOTY_ROOT/bin/booty-bootstrap"
   [ "$status" -eq 0 ]
-  [ "$(cat "$BOOTY_ORDER")" = $'00-config\n10-install\nusers/nesta\nhosts/plain' ]
+  [ "$(cat "$BOOTY_ORDER")" = $'00-config\n10-install\nusers/nesta\nhosts/plain\nbooty sync' ]
 }

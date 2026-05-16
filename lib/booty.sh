@@ -104,8 +104,8 @@ booty_gpg(){
   esac
 }
 
-booty_setup(){
-  dbg "booty_setup: BOOTY_HOME=$BOOTY_HOME BOOTY_REPO_URL=${BOOTY_REPO_URL:-} BOOTY_HOST=$BOOTY_HOST BOOTY_USER=$BOOTY_USER"
+booty_sync(){
+  dbg "booty_sync: BOOTY_HOME=$BOOTY_HOME BOOTY_REPO_URL=${BOOTY_REPO_URL:-} BOOTY_HOST=$BOOTY_HOST BOOTY_USER=$BOOTY_USER"
   mkdir -p "$BOOTY_HOME"
   if [ -d "$booty_repo/.git" ]; then
     if [ -n "${BOOTY_REPO_URL:-}" ]; then
@@ -123,25 +123,26 @@ booty_setup(){
   log "updating public checkout: $booty_repo"
   pull_repo "$booty_repo" public
   require_sources "$booty_repo" public
+  link_booty_commands
   log "applying public checkout: $booty_repo"
   booty_run "$booty_repo" apply
 
   if [ -n "${BOOTY_SECRETS_URL:-}" ]; then
-    dbg "booty_setup: BOOTY_SECRETS_URL=$BOOTY_SECRETS_URL"
+    dbg "booty_sync: BOOTY_SECRETS_URL=$BOOTY_SECRETS_URL"
     case "$BOOTY_SECRETS_URL" in
       gcrypt::*) ;;
       *) die "BOOTY_SECRETS_URL must use gcrypt::" ;;
     esac
     if ! booty_gpg_ready; then
       [ -f "$BOOTY_HOME/gnupg.tar.gz.age" ] || {
-        log "skipping secrets checkout: copy GPG archive to $BOOTY_HOME/gnupg.tar.gz.age or run 'booty gpg import <archive>'; then rerun 'booty setup'"
+        log "skipping secrets checkout: copy GPG archive to $BOOTY_HOME/gnupg.tar.gz.age or run 'booty gpg import <archive>'; then rerun 'booty sync'"
         return 0
       }
       booty_gpg import "$BOOTY_HOME/gnupg.tar.gz.age"
     fi
-    booty_gpg_ready || die "booty setup requires a GPG secret key for secrets checkout"
+    booty_gpg_ready || die "booty sync requires a GPG secret key for secrets checkout"
     command -v git-remote-gcrypt >/dev/null 2>&1 ||
-      die "booty setup requires git-remote-gcrypt for secrets checkout"
+      die "booty sync requires git-remote-gcrypt for secrets checkout"
     if [ -d "$booty_secrets_repo/.git" ]; then
       log "updating secrets checkout remote: $BOOTY_SECRETS_URL"
       git -C "$booty_secrets_repo" remote set-url origin "$BOOTY_SECRETS_URL"
@@ -165,6 +166,22 @@ rootfs_target(){ echo "${BOOTY_TARGET_ROOT:-/}"; }
 live_rootfs(){ [ "$(rootfs_target)" = / ]; }
 manifest(){ echo "${XDG_DATA_HOME:-$HOME/.local/share}/booty/${BOOTY_MANIFEST_PREFIX:+$BOOTY_MANIFEST_PREFIX-}$1.manifest.tsv"; }
 rsync_user(){ echo "$(id -u):$(id -g)"; }
+rootfs_sudo(){ sudo -v || die "sudo is required to manage live rootfs files"; }
+link_booty_commands(){
+  local cmd dst needs=0
+  live_rootfs || return 0
+  for cmd in "$booty_repo/bin"/booty*; do
+    [ -x "$cmd" ] || continue
+    dst="/usr/local/bin/${cmd##*/}"
+    [ "$(readlink "$dst" 2>/dev/null || true)" = "$cmd" ] || needs=1
+  done
+  [ "$needs" = 1 ] || return 0
+  rootfs_sudo
+  for cmd in "$booty_repo/bin"/booty*; do
+    [ -x "$cmd" ] || continue
+    sudo ln -sf "$cmd" "/usr/local/bin/${cmd##*/}"
+  done
+}
 
 abs_path(){
   case "$1" in
@@ -257,6 +274,7 @@ copy_from_rootfs(){
   local src="$1" dst="$2"
   mkdir -p "$(dirname "$dst")"
   if live_rootfs; then
+    rootfs_sudo
     sudo rsync -a --chown="$(rsync_user)" -- "$src" "$dst"
   else
     cp -a -- "$src" "$dst"
@@ -285,7 +303,10 @@ snapshot_rootfs(){
       paths+=("/$rel")
     done < "$(manifest rootfs)"
   fi
-  ((${#paths[@]})) && copy_live_rootfs "$tmp" "${paths[@]}" >/dev/null
+  if ((${#paths[@]})); then
+    rootfs_sudo
+    copy_live_rootfs "$tmp" "${paths[@]}" >/dev/null
+  fi
   BOOTY_TARGET_ROOT="$tmp" gitbooty "$repo" rootfs "$@"
 }
 
@@ -294,8 +315,7 @@ apply_rootfs(){
   shift
   live_rootfs || { gitbooty "$repo" rootfs "$@"; return; }
 
-  sudo -n rsync --version >/dev/null 2>&1 \
-    || die "sudo rsync not permitted for $USER — check /etc/sudoers.d/user-$USER"
+  rootfs_sudo
   if [ "${DEBUG:-0}" = 1 ]; then rsync_opts+=(--verbose); fi
 
   booty_tmp tmp apply
@@ -320,6 +340,7 @@ add_rootfs(){
   local repo="$1" p="$2" tmp f
   live_rootfs || { gitbooty "$repo" rootfs add "$p"; return; }
   booty_tmp tmp add
+  rootfs_sudo
   f="$(copy_live_rootfs "$tmp" "$p")"
   BOOTY_TARGET_ROOT="$tmp" gitbooty "$repo" rootfs add "$f"
 }
@@ -329,6 +350,7 @@ rm_rootfs(){
   shift
   live_rootfs || { gitbooty "$repo" rootfs rm "$@"; return; }
   booty_tmp tmp rm
+  rootfs_sudo
   while IFS= read -r p; do args+=("$p"); done < <(copy_live_rootfs "$tmp" "$@")
   BOOTY_TARGET_ROOT="$tmp" gitbooty "$repo" rootfs rm "${args[@]}"
   for p in "$@"; do sudo rm -f -- "$p"; done
@@ -338,6 +360,7 @@ mv_rootfs(){
   local repo="$1" src="$2" dst="$3" drel tmp staged
   live_rootfs || { gitbooty "$repo" rootfs mv "$src" "$dst"; return; }
   drel="${dst#/}"; booty_tmp tmp mv
+  rootfs_sudo
   staged="$(copy_live_rootfs "$tmp" "$src")"
   BOOTY_TARGET_ROOT="$tmp" gitbooty "$repo" rootfs mv "$staged" "$tmp/$drel"
   sudo mkdir -p "$(dirname "$dst")"
@@ -353,6 +376,7 @@ home_to_rootfs(){
   cp -a -- "$src" "$f"
   BOOTY_TARGET_ROOT="$tmp" gitbooty "$repo" rootfs add "$f"
   if live_rootfs; then
+    rootfs_sudo
     sudo mkdir -p "$(dirname "$dst")"
     sudo rsync -a -- "$f" "$dst"
   else

@@ -3,21 +3,10 @@ set -eo pipefail
 
 repo_url="${BOOTY_REPO_URL:-https://github.com/briceburg/booty.git}"
 
-[ "$EUID" -eq 0 ] || exec sudo -E "$0" "$@"
-
+[ "$EUID" -ne 0 ] || { echo "run install as the target sudo-capable user, not root" >&2; exit 1; }
 command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
 
-# When invoked via sudo, use that user's home; otherwise use root's
-if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != root ]; then
-  booty_user="$SUDO_USER"
-  booty_home="$(getent passwd "$booty_user" | cut -d: -f6 || true)"
-  [ -n "$booty_home" ] || { echo "cannot find home for user: $booty_user" >&2; exit 1; }
-else
-  booty_user=root
-  booty_home="$HOME"
-fi
-
-booty_root="${BOOTY_HOME:-$booty_home/.booty}"
+booty_root="${BOOTY_HOME:-$HOME/.booty}"
 booty_repo_root="$booty_root/booty"
 
 if [ -d "$booty_repo_root/.git" ]; then
@@ -27,14 +16,4 @@ else
   git clone "$repo_url" "$booty_repo_root"
 fi
 
-[ "$booty_user" = root ] || chown -R "$booty_user" "$booty_root"
-
-for cmd in "$booty_repo_root"/bin/booty*; do
-  [ -x "$cmd" ] || continue
-  ln -sf "$cmd" "/usr/local/bin/${cmd##*/}"
-done
-for cmd in /usr/local/bin/booty-crypt /usr/local/bin/booty-gpg; do
-  [ ! -L "$cmd" ] || rm -f "$cmd"
-done
-
-BOOTY_HOME="$booty_root" booty-bootstrap
+BOOTY_HOME="$booty_root" "$booty_repo_root/bin/booty-bootstrap"

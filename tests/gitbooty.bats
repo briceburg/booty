@@ -25,8 +25,8 @@ gitbooty_layered() {
 
   run gitbooty_layered apply
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_TARGET/.config/app.conf")" = "override" ]
-  [ "$(cat "$FIXTURE_TARGET/.bashrc")" = "shell" ]
+  file_eq "$FIXTURE_TARGET/.config/app.conf" override
+  file_eq "$FIXTURE_TARGET/.bashrc" shell
   grep -Fq ".config/app.conf" "$FIXTURE_STATE/home.manifest.tsv"
 }
 
@@ -46,7 +46,7 @@ gitbooty_layered() {
 
   run gitbooty pull
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_TARGET/pulled.conf")" = "updated" ]
+  file_eq "$FIXTURE_TARGET/pulled.conf" updated
 }
 
 @test "gitbooty prunes managed files removed from later pulls" {
@@ -80,7 +80,7 @@ gitbooty_layered() {
 
   GITBOOTY_EXCLUDES='home/*' run gitbooty pull
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_TARGET/etc/app.conf")" = "system" ]
+  file_eq "$FIXTURE_TARGET/etc/app.conf" system
   [ ! -e "$FIXTURE_TARGET/home/nesta/.bashrc" ]
   ! grep -Fq "home/nesta/.bashrc" "$FIXTURE_STATE/home.manifest.tsv"
 }
@@ -141,14 +141,14 @@ gitbooty_layered() {
 
   run gitbooty add "~/.bashrc"
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_REPO/layer1/.bashrc")" = "shell" ]
+  file_eq "$FIXTURE_REPO/layer1/.bashrc" shell
   grep -Fq $'.bashrc\tlayer1/.bashrc' "$FIXTURE_STATE/home.manifest.tsv"
 
   (
     cd "$FIXTURE_TARGET"
     gitbooty add relative.conf
   )
-  [ "$(cat "$FIXTURE_REPO/layer1/relative.conf")" = "config" ]
+  file_eq "$FIXTURE_REPO/layer1/relative.conf" config
   grep -Fq $'relative.conf\tlayer1/relative.conf' "$FIXTURE_STATE/home.manifest.tsv"
 }
 
@@ -166,7 +166,7 @@ gitbooty_layered() {
 
   run gitbooty commit -m "write back target changes"
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_REPO/layer1/bin/tool")" = "changed" ]
+  file_eq "$FIXTURE_REPO/layer1/bin/tool" changed
   [ -x "$FIXTURE_REPO/layer1/bin/tool" ]
   [ -L "$FIXTURE_REPO/layer1/plain.conf" ]
   [ "$(readlink "$FIXTURE_REPO/layer1/plain.conf")" = "bin/tool" ]

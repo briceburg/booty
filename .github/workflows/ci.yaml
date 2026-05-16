@@ -10,3 +10,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - run: ./bin/ci
+
+  archlinux-bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: BOOTY_CI=archlinux ./bin/ci

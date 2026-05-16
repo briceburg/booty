@@ -4,7 +4,9 @@ set -eo pipefail
 . "$(dirname "$(readlink -f "$0")")/../lib/booty.sh"
 . "$BOOTY_ROOT/lib/booty-bootstrap.sh"
 
-case "${1:-}" in
+cmd="${1:-bootstrap}"
+
+case "$cmd" in
   help|--help|-h)
     cat <<EOF
 usage: booty-bootstrap [bootstrap|config|help]
@@ -13,10 +15,35 @@ Bootstraps this machine with $BOOTSTRAP_ROOT.
 EOF
     exit 0
     ;;
+  bootstrap|config) ;;
+  *) die "usage: booty-bootstrap [bootstrap|config|help]" ;;
 esac
 
-[ "$EUID" -eq 0 ] || exec sudo -E "$0" "$@"
-export BOOTSTRAP_CMD="${1:-bootstrap}"
+export BOOTSTRAP_CMD="$cmd"
+[ -n "${BOOTSTRAP_USER:-}" ] || [ "$EUID" -eq 0 ] || export BOOTSTRAP_USER="$BOOTY_USER"
+
+[ "$BOOTSTRAP_CMD" != bootstrap ] || [ "$EUID" -eq 0 ] || sudo_env_exec \
+  BOOTSTRAP_CONFIG_DIR \
+  BOOTSTRAP_ROOT \
+  BOOTSTRAP_SKIP_REFLECTOR \
+  BOOTSTRAP_USER \
+  BOOTY_AGE_IDENTITY \
+  BOOTY_HOME \
+  BOOTY_HOST \
+  BOOTY_OS \
+  BOOTY_REPO_URL \
+  BOOTY_SECRETS_URL \
+  DEBUG \
+  -- "$0" "$@"
+
+if [ "$BOOTSTRAP_CMD" = config ]; then
+  config_script="$BOOTSTRAP_ROOT/00-config.sh"
+  [ -f "$config_script" ] || die "missing bootstrap config script: $config_script"
+  # shellcheck source=/dev/null
+  . "$config_script"
+  bootstrap_dump_env
+  exit 0
+fi
 
 shopt -s nullglob
 scripts=("$BOOTSTRAP_ROOT"/[0-9][0-9]-*.sh)
@@ -34,11 +61,6 @@ script="$BOOTSTRAP_ROOT/users/$BOOTSTRAP_USER.sh"
 
 source_bootstrap "$BOOTSTRAP_ROOT/hosts/$BOOTY_HOST.sh"
 
-# Re-symlink booty commands from the user's checkout to /usr/local/bin
-# so future `booty pull` updates the active binaries.
-for cmd in "$BOOTY_HOME/booty/bin"/booty*; do
-  [ -x "$cmd" ] || continue
-  ln -sf "$cmd" "/usr/local/bin/${cmd##*/}"
-done
-
+log "running booty sync as $BOOTSTRAP_USER"
+as_user "$BOOTSTRAP_USER" "$BOOTY_ROOT/bin/booty" sync
 log "[OK] Bootstrap Complete"
