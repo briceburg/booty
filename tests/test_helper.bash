@@ -8,6 +8,11 @@ setup_tmp() {
 
 teardown_tmp() { rm -rf "${TEST_ROOT:-}"; }
 file_eq() { [ "$(cat "$1")" = "$2" ]; }
+last_output_line() {
+  local line last=
+  while IFS= read -r line; do last="$line"; done <<< "${output:-}"
+  printf '%s\n' "$last"
+}
 
 fixture() {
   mkdir -p "$2"
@@ -36,6 +41,12 @@ git_id() {
   git -C "$1" config user.name "Test User"
 }
 
+git_init() {
+  mkdir -p "$1"
+  git -C "$1" init -q
+  git_id "$1"
+}
+
 git_commit_all() {
   git -C "$1" add .
   git -C "$1" commit -qm "$2"
@@ -57,14 +68,14 @@ setup_booty_public() {
     "BOOTY_REPO_URL=\${BOOTY_REPO_URL:-file://$FIXTURE_REPO}" \
     "BOOTY_SECRETS_URL=\${BOOTY_SECRETS_URL:-gcrypt::file://$TEST_ROOT/secrets-remote}"
   fixture dotfiles/archlinux "$FIXTURE_REPO/dotfiles/archlinux"
-  git -C "$FIXTURE_REPO" init -q
+  git_init "$FIXTURE_REPO"
 }
 
 setup_booty_secrets() {
   setup_booty_public
   export FIXTURE_SECRETS="$BOOTY_HOME/booty-secrets"
   fixture dotfiles/secrets/archlinux "$FIXTURE_SECRETS/dotfiles/archlinux"
-  git -C "$FIXTURE_SECRETS" init -q
+  git_init "$FIXTURE_SECRETS"
 }
 
 setup_archlinux() {

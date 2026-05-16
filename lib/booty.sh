@@ -6,6 +6,11 @@ die(){
   exit 1
 }
 
+source_file(){
+  # shellcheck source=/dev/null
+  . "$1"
+}
+
 BOOTY_ROOT="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 export BOOTY_ROOT
 
@@ -18,10 +23,7 @@ booty_user_home(){
 BOOTY_HOME="${BOOTY_HOME:-$(booty_user_home)/.booty}"
 booty_home="$BOOTY_HOME"
 booty_config="$BOOTY_HOME/config"
-[ ! -f "$booty_config" ] || {
-  # shellcheck source=/dev/null
-  . "$booty_config"
-}
+[ ! -f "$booty_config" ] || source_file "$booty_config"
 BOOTY_HOME="$booty_home"
 booty_gpg_home="${GNUPGHOME:-$HOME/.gnupg}"
 booty_repo="$BOOTY_HOME/booty"
@@ -123,7 +125,6 @@ booty_sync(){
   log "updating public checkout: $booty_repo"
   pull_repo "$booty_repo" public
   require_sources "$booty_repo" public
-  link_booty_commands
   log "applying public checkout: $booty_repo"
   booty_run "$booty_repo" apply
 
@@ -166,21 +167,9 @@ rootfs_target(){ echo "${BOOTY_TARGET_ROOT:-/}"; }
 live_rootfs(){ [ "$(rootfs_target)" = / ]; }
 manifest(){ echo "${XDG_DATA_HOME:-$HOME/.local/share}/booty/${BOOTY_MANIFEST_PREFIX:+$BOOTY_MANIFEST_PREFIX-}$1.manifest.tsv"; }
 rsync_user(){ echo "$(id -u):$(id -g)"; }
-rootfs_sudo(){ sudo -v || die "sudo is required to manage live rootfs files"; }
-link_booty_commands(){
-  local cmd dst needs=0
-  live_rootfs || return 0
-  for cmd in "$booty_repo/bin"/booty*; do
-    [ -x "$cmd" ] || continue
-    dst="/usr/local/bin/${cmd##*/}"
-    [ "$(readlink "$dst" 2>/dev/null || true)" = "$cmd" ] || needs=1
-  done
-  [ "$needs" = 1 ] || return 0
-  rootfs_sudo
-  for cmd in "$booty_repo/bin"/booty*; do
-    [ -x "$cmd" ] || continue
-    sudo ln -sf "$cmd" "/usr/local/bin/${cmd##*/}"
-  done
+rootfs_sudo(){ [ "$EUID" -eq 0 ] || sudo -v || die "sudo is required to manage live rootfs files"; }
+rootfs_cmd(){
+  if [ "$EUID" -eq 0 ]; then "$@"; else sudo "$@"; fi
 }
 
 abs_path(){
@@ -194,6 +183,9 @@ abs_path(){
 
 path_area(){
   local p; p="$(abs_path "$1")"
+  if [ "$BOOTY_USER" = root ]; then
+    case "$p" in /root|/root/*) echo home; return ;; esac
+  fi
   case "$p" in
     "$HOME"|"$HOME"/*|/home/"$BOOTY_USER"|/home/"$BOOTY_USER"/*) echo home ;;
     /home/*) die "refusing to manage another user's home: $p" ;;
@@ -275,7 +267,7 @@ copy_from_rootfs(){
   mkdir -p "$(dirname "$dst")"
   if live_rootfs; then
     rootfs_sudo
-    sudo rsync -a --chown="$(rsync_user)" -- "$src" "$dst"
+    rootfs_cmd rsync -a --chown="$(rsync_user)" -- "$src" "$dst"
   else
     cp -a -- "$src" "$dst"
   fi
@@ -291,7 +283,7 @@ copy_live_rootfs(){
   done
   ((${#rels[@]})) &&
     printf '%s\n' "${rels[@]}" |
-      sudo rsync -a --ignore-missing-args --files-from=- --chown="$(rsync_user)" / "$tmp/"
+      rootfs_cmd rsync -a --ignore-missing-args --files-from=- --chown="$(rsync_user)" / "$tmp/"
 }
 
 snapshot_rootfs(){
@@ -328,11 +320,11 @@ apply_rootfs(){
   if [ "${DEBUG:-0}" = 1 ]; then
     dbg "apply_rootfs: rendered files: $(find "$render" -type f | sort | tr '\n' ' ')"
   fi
-  dbg "apply_rootfs: sudo rsync ${rsync_opts[*]} $render/ /"
-  sudo rsync "${rsync_opts[@]}" "$render"/ /
+  dbg "apply_rootfs: rootfs rsync ${rsync_opts[*]} $render/ /"
+  rootfs_cmd rsync "${rsync_opts[@]}" "$render"/ /
   if [ -f "$old" ]; then
     awk -F '\t' 'FILENAME == ARGV[1] { keep[$1]=1; next } $1 && !($1 in keep) { print $1 }' "$new" "$old" |
-      while IFS= read -r rel; do sudo rm -f -- "/$rel"; done
+      while IFS= read -r rel; do rootfs_cmd rm -f -- "/$rel"; done
   fi
 }
 
@@ -353,7 +345,7 @@ rm_rootfs(){
   rootfs_sudo
   while IFS= read -r p; do args+=("$p"); done < <(copy_live_rootfs "$tmp" "$@")
   BOOTY_TARGET_ROOT="$tmp" gitbooty "$repo" rootfs rm "${args[@]}"
-  for p in "$@"; do sudo rm -f -- "$p"; done
+  for p in "$@"; do rootfs_cmd rm -f -- "$p"; done
 }
 
 mv_rootfs(){
@@ -363,8 +355,8 @@ mv_rootfs(){
   rootfs_sudo
   staged="$(copy_live_rootfs "$tmp" "$src")"
   BOOTY_TARGET_ROOT="$tmp" gitbooty "$repo" rootfs mv "$staged" "$tmp/$drel"
-  sudo mkdir -p "$(dirname "$dst")"
-  sudo mv -- "$src" "$dst"
+  rootfs_cmd mkdir -p "$(dirname "$dst")"
+  rootfs_cmd mv -- "$src" "$dst"
 }
 
 home_to_rootfs(){
@@ -377,8 +369,8 @@ home_to_rootfs(){
   BOOTY_TARGET_ROOT="$tmp" gitbooty "$repo" rootfs add "$f"
   if live_rootfs; then
     rootfs_sudo
-    sudo mkdir -p "$(dirname "$dst")"
-    sudo rsync -a -- "$f" "$dst"
+    rootfs_cmd mkdir -p "$(dirname "$dst")"
+    rootfs_cmd rsync -a -- "$f" "$dst"
   else
     mkdir -p "$(dirname "$dst")"
     cp -a -- "$f" "$dst"
@@ -407,10 +399,10 @@ booty_run(){
         git -C "$repo" pull --ff-only
       ;&
     apply)
-      if has_sources "$repo" home; then
+      if [ "${BOOTY_SKIP_HOME:-0}" != 1 ] && has_sources "$repo" home; then
         gitbooty "$repo" home apply
       fi
-      if has_sources "$repo" rootfs; then
+      if [ "${BOOTY_SKIP_ROOTFS:-0}" != 1 ] && has_sources "$repo" rootfs; then
         apply_rootfs "$repo" apply
       fi
       ;;

@@ -26,6 +26,19 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   file_eq "$FIXTURE_HOME/.bashrc" shell
 }
 
+@test "booty applies profile path for checkout commands" {
+  booty pull >/dev/null
+  mkdir -p "$FIXTURE_REPO/bin"
+
+  run env -i HOME="$FIXTURE_HOME" PATH=/bin:/usr/bin bash -c ". '$FIXTURE_ROOT/etc/profile.d/booty.sh'; printf '%s' \"\$PATH\""
+  [ "$status" -eq 0 ]
+  [ "$output" = "$FIXTURE_REPO/bin:/bin:/usr/bin" ]
+
+  run env -i HOME="$FIXTURE_HOME" PATH="$FIXTURE_REPO/bin:/bin:/usr/bin" bash -c ". '$FIXTURE_ROOT/etc/profile.d/booty.sh'; printf '%s' \"\$PATH\""
+  [ "$status" -eq 0 ]
+  [ "$output" = "$FIXTURE_REPO/bin:/bin:/usr/bin" ]
+}
+
 @test "booty pull prunes files removed from rootfs sources" {
   booty pull >/dev/null
   [ -f "$FIXTURE_ROOT/etc/example.conf" ]
@@ -42,11 +55,9 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   secrets_remote="$TEST_ROOT/secrets-remote"
   fixture dotfiles/archlinux "$public_remote/dotfiles/archlinux"
   writef "$secrets_remote" "dotfiles/archlinux/rootfs/home/nesta/.private" secrets-bootstrap
-  git -C "$public_remote" init -q
-  git_id "$public_remote"
+  git_init "$public_remote"
   git_commit_all "$public_remote" "seed public"
-  git -C "$secrets_remote" init -q
-  git_id "$secrets_remote"
+  git_init "$secrets_remote"
   git_commit_all "$secrets_remote" "seed secrets"
   rm -rf "$FIXTURE_REPO" "$BOOTY_HOME/booty-secrets"
   fake gcrypt
@@ -67,8 +78,7 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   old_remote="$TEST_ROOT/old-public"
   new_remote="$TEST_ROOT/new-public"
   fixture dotfiles/archlinux "$old_remote/dotfiles/archlinux"
-  git -C "$old_remote" init -q
-  git_id "$old_remote"
+  git_init "$old_remote"
   git_commit_all "$old_remote" "seed old public"
   rm -rf "$FIXTURE_REPO"
   git clone -q "$old_remote" "$FIXTURE_REPO"
@@ -88,8 +98,7 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   public_remote="$TEST_ROOT/minimal-public"
   mkdir -p "$public_remote"
   writef "$public_remote" README.md minimal
-  git -C "$public_remote" init -q
-  git_id "$public_remote"
+  git_init "$public_remote"
   git_commit_all "$public_remote" "minimal public"
   rm -rf "$FIXTURE_REPO"
   git clone -q "$public_remote" "$FIXTURE_REPO"
@@ -138,7 +147,7 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
 
   run booty config user.name
   [ "$status" -eq 0 ]
-  [ "$output" = "Test User" ]
+  [ "$(last_output_line)" = "Test User" ]
 }
 
 @test "booty status reports clean after pull on repo-shaped tree" {
@@ -215,10 +224,14 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.root-bashrc" moved-to-system
 }
 
-@test "booty refuses direct root execution" {
-  run env USER=root "$BOOTY_ROOT/bin/booty" pull
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"run booty as your regular user"* ]]
+@test "booty supports root as a dotfile user" {
+  root_home="$FIXTURE_ROOT/root"
+  mkdir -p "$root_home"
+  writef "$FIXTURE_REPO" "dotfiles/archlinux/rootfs/home/root/.bashrc" root-shell
+
+  run env USER=root BOOTY_USER=root HOME="$root_home" BOOTY_HOME="$BOOTY_HOME" BOOTY_HOME_TARGET_ROOT="$root_home" "$BOOTY_ROOT/bin/booty" pull
+  [ "$status" -eq 0 ]
+  file_eq "$root_home/.bashrc" root-shell
 }
 
 @test "booty requires checkout under BOOTY_HOME" {

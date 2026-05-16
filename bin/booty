@@ -3,9 +3,6 @@ set -eo pipefail
 
 . "$(dirname "$(readlink -f "$0")")/../lib/booty.sh"
 
-[ "$BOOTY_USER" != root ] ||
-  die "run booty as your regular user; booty uses sudo only for protected system files"
-
 case "${1:-status}" in
   -h|--help|help)
     cat <<EOF

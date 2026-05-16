@@ -13,9 +13,8 @@ check()  {
     [ "${DEBUG:-0}" = 1 ] || echo "    (re-run with DEBUG=1 for a full trace)" >&2
   fi
 }
-finish() { ((FAILURES == 0)) || { echo "==> $FAILURES assertion(s) failed — re-run with DEBUG=1 for a full trace" >&2; exit 1; }; echo "==> all $1 passed" >&2; }
+finish() { ((FAILURES == 0)) || { echo "==> $FAILURES assertion(s) failed" >&2; exit 1; }; echo "==> all $1 passed" >&2; }
 ci_booty() { sudo -H -u ci env BOOTY_HOME=/home/ci/.booty BOOTY_HOST=ci BOOTY_AGE_IDENTITY=/tmp/ci-age-key.txt /home/ci/.booty/booty/bin/booty "$@"; }
-booty_symlink_in_ci_home() { readlink /usr/local/bin/booty | grep -q '^/home/ci/'; }
 has_content() { [ "$(cat "$1")" = "$2" ]; }
 contains_text() { grep -qF "$2" "$1"; }
 lacks_text() { ! grep -qF "$2" "$1"; }
@@ -29,8 +28,6 @@ build_sim_repo() {
   copy_tree /work/bootstrap "$repo/bootstrap"
   copy_tree /work/tests/fixtures/bootstrap "$repo/bootstrap"
   copy_tree /work/tests/fixtures/dotfiles/archlinux "$repo/dotfiles/archlinux"
-  cp /work/dotfiles/archlinux/rootfs/usr/local/bin/aur-install \
-    "$repo/dotfiles/archlinux/rootfs/usr/local/bin/aur-install"
   git -C "$repo" init -q
   git_id "$repo"
   git -C "$repo" add .
@@ -43,18 +40,13 @@ pacman -Sy --noconfirm --needed git sudo >/dev/null 2>&1
 
 sim_repo=/tmp/sim-booty
 build_sim_repo "$sim_repo"
-useradd --create-home ci
-passwd -l ci >/dev/null
-
-mkdir -p /etc/sudoers.d
-printf 'ci ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/ci-booty-test
-chmod 440 /etc/sudoers.d/ci-booty-test
-sudo -H -u ci env BOOTY_HOST=ci BOOTY_REPO_URL="file://$sim_repo" BOOTSTRAP_SKIP_REFLECTOR=1 \
+env BOOTSTRAP_USER=ci BOOTY_HOST=ci BOOTY_REPO_URL="file://$sim_repo" BOOTSTRAP_SKIP_REFLECTOR=1 \
   bash /work/install
 
-check "booty symlink exists" test -L /usr/local/bin/booty
-check "booty symlink points to ci home" booty_symlink_in_ci_home
-check "booty status exits 0 as ci user" sudo -H -u ci /usr/local/bin/booty status
+check "bootstrap created ci user" id -u ci
+check "booty symlink is absent" test ! -e /usr/local/bin/booty
+check "booty resolves from login PATH" sudo -H -u ci bash -lc 'command -v booty | grep -q "^/home/ci/.booty/booty/bin/booty$"'
+check "booty status exits 0 as ci user" sudo -H -u ci bash -lc 'booty status'
 check "home dotfile applied" test -f /home/ci/.bashrc
 check "home dotfile owned by ci" owned_by /home/ci/.bashrc ci:ci
 check "user helper pulled executable" sudo -H -u ci test -x /home/ci/bin/create-secrets-remote
@@ -64,11 +56,11 @@ check "system helper pulled executable" /usr/local/bin/ci-system-probe
 check "system helper owned by root" owned_by /usr/local/bin/ci-system-probe root:root
 check "AUR checkout cloned as ci" test -f /home/ci/git/AUR/git-remote-gcrypt/PKGBUILD
 check "AUR checkout owned by ci" owned_by /home/ci/git/AUR/git-remote-gcrypt ci:ci
-check "AUR package installed through user sudo" command -v git-remote-gcrypt
+check "AUR package installed by bootstrap" command -v git-remote-gcrypt
 check "runtime config writes canonical repo url" contains_text /home/ci/.booty/config "BOOTY_REPO_URL="
 check "runtime config does not leak bootstrap vars" lacks_text /home/ci/.booty/config "BOOTSTRAP_"
 check "bootstrap did not create legacy command sudoers" test ! -e /etc/sudoers.d/user-ci
-check "bootstrap did not create temporary AUR sudoers" test ! -e /etc/sudoers.d/booty-bootstrap-aur-ci
+check "bootstrap did not create AUR sudoers" test ! -e /etc/sudoers.d/booty-bootstrap-aur-ci
 
 finish "bootstrap assertions"
 

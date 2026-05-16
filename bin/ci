@@ -10,7 +10,6 @@ on_exit() {
     echo "✅ CI checks passed" >&2
   else
     echo "❌ CI checks failed" >&2
-    [ "${DEBUG:-0}" = 1 ] || echo "  (re-run with DEBUG=1 for a full trace)" >&2
   fi
 }
 
@@ -33,8 +32,10 @@ test/lint() {
 }
 
 test/bats() {
+  local bats_flags=()
   echo "==> running bats tests" >&2
-  bats tests
+  [ "$DEBUG" != 1 ] || bats_flags+=(--print-output-on-failure --trace)
+  bats "${bats_flags[@]}" tests
 }
 
 test/archlinux() {
