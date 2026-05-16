@@ -13,8 +13,8 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run secrets pull
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_HOME/.config/app.conf")" = "secrets" ]
-  [ "$(cat "$FIXTURE_ROOT/etc/secret.conf")" = "secrets-root" ]
+  file_eq "$FIXTURE_HOME/.config/app.conf" secrets
+  file_eq "$FIXTURE_ROOT/etc/secret.conf" secrets-root
   [ -f "$FIXTURE_STATE/booty/secrets-home.manifest.tsv" ]
   [ -f "$FIXTURE_STATE/booty/secrets-rootfs.manifest.tsv" ]
   [ "$(stat -c %a "$BOOTY_HOME/tmp")" = 700 ]
@@ -29,7 +29,7 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run secrets add "$FIXTURE_HOME/.private"
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_SECRETS/dotfiles/archlinux/rootfs/home/nesta/.private")" = "private" ]
+  file_eq "$FIXTURE_SECRETS/dotfiles/archlinux/rootfs/home/nesta/.private" private
   [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.private" ]
 }
 
@@ -39,7 +39,7 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
   run secrets pull
   [ "$status" -ne 0 ]
   [[ "$output" == *"missing secrets checkout"* ]]
-  [[ "$output" == *"booty setup"* ]]
+  [[ "$output" == *"booty sync"* ]]
 }
 
 @test "booty-secrets honors explicit BOOTY_HOME" {
@@ -51,7 +51,7 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run env BOOTY_HOME="$custom_home" "$BOOTY_ROOT/bin/booty-secrets" pull
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_HOME/.private")" = "custom" ]
+  file_eq "$FIXTURE_HOME/.private" custom
 }
 
 @test "booty-secrets help does not clone missing secrets checkout" {

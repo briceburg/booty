@@ -12,9 +12,9 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
 
   run booty pull
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_HOME/.config/app.conf")" = "override" ]
-  [ "$(cat "$FIXTURE_HOME/.bashrc")" = "shell" ]
-  [ "$(cat "$FIXTURE_ROOT/etc/example.conf")" = "root-base" ]
+  file_eq "$FIXTURE_HOME/.config/app.conf" override
+  file_eq "$FIXTURE_HOME/.bashrc" shell
+  file_eq "$FIXTURE_ROOT/etc/example.conf" root-base
   [ ! -e "$FIXTURE_ROOT/home/foo/.bashrc" ]
   [ -f "$FIXTURE_STATE/booty/home.manifest.tsv" ]
   [ -f "$FIXTURE_STATE/booty/rootfs.manifest.tsv" ]
@@ -23,7 +23,7 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
 @test "booty derives repo root from BOOTY_HOME" {
   run env BOOTY_HOME="$BOOTY_HOME" "$BOOTY_ROOT/bin/booty" pull
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_HOME/.bashrc")" = "shell" ]
+  file_eq "$FIXTURE_HOME/.bashrc" shell
 }
 
 @test "booty pull prunes files removed from rootfs sources" {
@@ -37,7 +37,7 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   [ ! -e "$FIXTURE_ROOT/etc/example.conf" ]
 }
 
-@test "booty setup clones public checkout, applies it, and sets up secrets" {
+@test "booty sync clones public checkout, applies it, and sets up secrets" {
   public_remote="$TEST_ROOT/public-remote"
   secrets_remote="$TEST_ROOT/secrets-remote"
   fixture dotfiles/archlinux "$public_remote/dotfiles/archlinux"
@@ -55,15 +55,15 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   run env \
     BOOTY_REPO_URL="file://$public_remote" \
     BOOTY_SECRETS_URL="gcrypt::file://$secrets_remote" \
-    "$BOOTY_ROOT/bin/booty" setup
+    "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -eq 0 ]
   [ "$(git -C "$FIXTURE_REPO" remote get-url origin)" = "file://$public_remote" ]
   [ -d "$BOOTY_HOME/booty-secrets/.git" ]
-  [ "$(cat "$FIXTURE_HOME/.bashrc")" = "shell" ]
-  [ "$(cat "$FIXTURE_HOME/.private")" = "secrets-bootstrap" ]
+  file_eq "$FIXTURE_HOME/.bashrc" shell
+  file_eq "$FIXTURE_HOME/.private" secrets-bootstrap
 }
 
-@test "booty setup retargets an existing public checkout remote" {
+@test "booty sync retargets an existing public checkout remote" {
   old_remote="$TEST_ROOT/old-public"
   new_remote="$TEST_ROOT/new-public"
   fixture dotfiles/archlinux "$old_remote/dotfiles/archlinux"
@@ -78,13 +78,13 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   git_commit_all "$new_remote" "retarget public"
   : > "$BOOTY_HOME/config"
 
-  run env BOOTY_REPO_URL="file://$new_remote" "$BOOTY_ROOT/bin/booty" setup
+  run env BOOTY_REPO_URL="file://$new_remote" "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -eq 0 ]
   [ "$(git -C "$FIXTURE_REPO" remote get-url origin)" = "file://$new_remote" ]
-  [ "$(cat "$FIXTURE_HOME/.bashrc")" = "retargeted" ]
+  file_eq "$FIXTURE_HOME/.bashrc" retargeted
 }
 
-@test "booty setup rejects a public checkout with no dotfiles" {
+@test "booty sync rejects a public checkout with no dotfiles" {
   public_remote="$TEST_ROOT/minimal-public"
   mkdir -p "$public_remote"
   writef "$public_remote" README.md minimal
@@ -95,27 +95,27 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   git clone -q "$public_remote" "$FIXTURE_REPO"
   : > "$BOOTY_HOME/config"
 
-  run env BOOTY_REPO_URL="file://$public_remote" BOOTY_SECRETS_URL= "$BOOTY_ROOT/bin/booty" setup
+  run env BOOTY_REPO_URL="file://$public_remote" BOOTY_SECRETS_URL= "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -ne 0 ]
   [[ "$output" == *"public checkout has no dotfiles"* ]]
   [[ "$output" == *"README.md#layout"* ]]
   [ "$(git -C "$FIXTURE_REPO" remote get-url origin)" = "file://$public_remote" ]
 }
 
-@test "booty setup skips secrets checkout when gpg is unconfigured" {
+@test "booty sync skips secrets checkout when gpg is unconfigured" {
   rm -rf "$BOOTY_HOME/booty-secrets"
   : > "$BOOTY_HOME/config"
 
-  run env BOOTY_REPO_URL= BOOTY_SECRETS_URL="gcrypt::file://$TEST_ROOT/secrets-remote" "$BOOTY_ROOT/bin/booty" setup
+  run env BOOTY_REPO_URL= BOOTY_SECRETS_URL="gcrypt::file://$TEST_ROOT/secrets-remote" "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -eq 0 ]
   [[ "$output" == *"skipping secrets checkout"* ]]
   [ ! -e "$BOOTY_HOME/booty-secrets" ]
 }
 
-@test "booty setup rejects non-gcrypt secrets repo urls" {
+@test "booty sync rejects non-gcrypt secrets repo urls" {
   : > "$BOOTY_HOME/config"
 
-  run env BOOTY_REPO_URL= BOOTY_SECRETS_URL="$TEST_ROOT/plain-remote" "$BOOTY_ROOT/bin/booty" setup
+  run env BOOTY_REPO_URL= BOOTY_SECRETS_URL="$TEST_ROOT/plain-remote" "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -ne 0 ]
   [[ "$output" == *"BOOTY_SECRETS_URL must use gcrypt::"* ]]
 }
@@ -123,7 +123,7 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
 @test "booty bootstrap points to the unambiguous commands" {
   run booty bootstrap
   [ "$status" -ne 0 ]
-  [[ "$output" == *"use 'booty setup'"* ]]
+  [[ "$output" == *"use 'booty sync'"* ]]
   [[ "$output" == *"booty-bootstrap"* ]]
 }
 
@@ -167,8 +167,8 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   ( cd "$FIXTURE_HOME" && booty add relative.conf )
   run booty add "$FIXTURE_HOME/absolute.conf"
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/relative.conf")" = "relative" ]
-  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/absolute.conf")" = "absolute" ]
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/relative.conf" relative
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/absolute.conf" absolute
 }
 
 @test "booty add routes absolute system paths to host system dotfiles" {
@@ -176,7 +176,7 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
 
   run booty add "$FIXTURE_ROOT/etc/routed.conf"
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/etc/routed.conf")" = "routed" ]
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/etc/routed.conf" routed
   [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/etc/routed.conf" ]
 }
 
@@ -192,8 +192,8 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
 
   run booty add "$FIXTURE_HOME/.gitconfig" "$FIXTURE_ROOT/root/.bashrc"
   [ "$status" -eq 0 ]
-  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.gitconfig")" = "user-gitconfig" ]
-  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/root/.bashrc")" = "root-bashrc" ]
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.gitconfig" user-gitconfig
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/root/.bashrc" root-bashrc
 }
 
 @test "booty mv can move tracked files between user and system paths" {
@@ -203,16 +203,16 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   run booty mv "$FIXTURE_HOME/.gitconfig" "$FIXTURE_ROOT/root/.bashrc"
   [ "$status" -eq 0 ]
   [ ! -e "$FIXTURE_HOME/.gitconfig" ]
-  [ "$(cat "$FIXTURE_ROOT/root/.bashrc")" = "moved-to-system" ]
+  file_eq "$FIXTURE_ROOT/root/.bashrc" moved-to-system
   [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.gitconfig" ]
-  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/root/.bashrc")" = "moved-to-system" ]
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/root/.bashrc" moved-to-system
 
   run booty mv "$FIXTURE_ROOT/root/.bashrc" "$FIXTURE_HOME/.root-bashrc"
   [ "$status" -eq 0 ]
   [ ! -e "$FIXTURE_ROOT/root/.bashrc" ]
-  [ "$(cat "$FIXTURE_HOME/.root-bashrc")" = "moved-to-system" ]
+  file_eq "$FIXTURE_HOME/.root-bashrc" moved-to-system
   [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/root/.bashrc" ]
-  [ "$(cat "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.root-bashrc")" = "moved-to-system" ]
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.root-bashrc" moved-to-system
 }
 
 @test "booty refuses direct root execution" {

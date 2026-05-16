@@ -1,2 +1,2 @@
-booty_url: file:///tmp/sim-booty
+repo_url: file:///tmp/sim-booty
 secrets_url: gcrypt::file:///tmp/ci-secrets-remote

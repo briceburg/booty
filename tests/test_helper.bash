@@ -7,6 +7,7 @@ setup_tmp() {
 }
 
 teardown_tmp() { rm -rf "${TEST_ROOT:-}"; }
+file_eq() { [ "$(cat "$1")" = "$2" ]; }
 
 fixture() {
   mkdir -p "$2"
@@ -71,7 +72,7 @@ setup_archlinux() {
   export BOOTY_HOME="$TEST_ROOT/.booty"
   export FIXTURE_REPO="$BOOTY_HOME/booty"
   export BOOTSTRAP_CONFIG_DIR="$TEST_ROOT/booty"
-  export BOOTY_OS=archlinux
+  export BOOTY_OS=archlinux BOOTSTRAP_USER=nesta
   mkdir -p "$BOOTSTRAP_CONFIG_DIR"
   fixture bootstrap "$FIXTURE_REPO/bootstrap"
   cp "$TEST_REPO/bootstrap/archlinux/00-config.sh" "$FIXTURE_REPO/bootstrap/archlinux/00-config.sh"

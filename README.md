@@ -1,6 +1,6 @@
 # booty :pirate_flag: :gift:
 
-`booty` tracks your dotfiles and system files in git and applies them to your host.
+`booty` tracks home and system dotfiles in git, then applies them to a host.
 
 ## Install
 
@@ -8,51 +8,57 @@
 curl -fsSL https://raw.githubusercontent.com/briceburg/booty/main/install | bash
 ```
 
-Clones to `~/.booty/booty`, symlinks `bin/booty*` into `/usr/local/bin`, and runs [`booty-bootstrap`](#bootstrap).
+The installer clones to `~/.booty/booty`, runs [`booty-bootstrap`](#bootstrap), and finishes with `booty sync` as the current user.
+
+> [!NOTE]
+> Run this as the user who should own the dotfiles, not as root. Bootstrap will ask for sudo when system changes need it.
+>
+> On a fresh OS, create a normal user with sudo access first. For example, on Arch:
+>
+> ```sh
+> useradd -m -G wheel -s /bin/bash nesta
+> passwd nesta
+> su - nesta
+> ```
+>
+> Configure sudo however your OS or admin policy expects; `booty` only requires that the installing user can run `sudo`.
 
 > [!TIP]
-> This installs [briceburg's dotfiles](https://github.com/briceburg/booty). To use your own, [fork this repo](https://github.com/briceburg/booty/fork) and set `BOOTY_REPO_URL`:
+> To use your own fork:
 > ```sh
 > curl -fsSL https://raw.githubusercontent.com/briceburg/booty/main/install |
 >   BOOTY_REPO_URL=https://github.com/yourname/booty.git bash
 > ```
 
-### Setup
+## Sync
 
-`booty setup` clones the configured dotfiles repo(s) into `~/.booty/` and applies them to the host. The OS bootstrap calls it automatically during provisioning. Rerun when a repo URL changes or to re-initialize a fresh machine.
-
-If you use [secrets](#secrets), `booty setup` also clones and configures the encrypted checkout — see [GPG](#gpg) to prepare your keys first.
+`booty sync` clones configured repos into `~/.booty/`, refreshes `booty*` command links, and applies dotfiles. Bootstrap runs it automatically; rerun it after repo URL changes or to re-initialize a machine.
 
 ```sh
-booty setup
+booty sync
 ```
 
 ## Commands
 
-`booty` is a git wrapper — `add`, `rm`, `mv`, `setup`, and `gpg` are booty-specific; everything else is plain git. The booty-specific commands handle the home/system file distinction (invoking sudo as needed) via [`gitbooty`](bin/gitbooty) underneath:
+`booty` is a git wrapper. `add`, `rm`, `mv`, `sync`, and `gpg` are booty-specific; other commands pass through to git. System files use sudo as needed.
 
 ```sh
 booty status
 booty diff
-booty pull                       # pulls and applies dotfiles
-booty add ~/.bashrc              # start tracking a file
-booty add /etc/keyd/default.conf # system files tracked and applied via sudo
-booty rm ~/.bashrc               # stop tracking (removes from host)
-booty mv ~/.bashrc /etc/skel/.bashrc  # move between home and system
+booty pull
+booty add ~/.bashrc
+booty add /etc/keyd/default.conf
+booty rm ~/.bashrc
+booty mv ~/.bashrc /etc/skel/.bashrc
 booty commit -am "update .bashrc"
 booty push
-booty log --oneline -5
 ```
 
-> [!TIP]
-> Always run `booty` as your regular user — sudo is invoked automatically for system files.
+Always run `booty` as your regular user. Protected system files may prompt for sudo once per operation.
 
 ## Secrets
 
-> [!NOTE]
-> Optional. Requires [GPG](https://gnupg.org), [git-remote-gcrypt](https://github.com/spwhitton/git-remote-gcrypt), and [age](https://age-encryption.org). The OS bootstrap is responsible for installing all three.
-
-`booty-secrets` is identical to `booty` but targets a separate encrypted checkout:
+Secrets are optional and use a separate encrypted checkout:
 
 ```sh
 booty-secrets pull
@@ -62,73 +68,76 @@ booty-secrets commit -m "update secrets"
 booty-secrets push
 ```
 
-Set `secrets_url` in [your user config](bootstrap/archlinux/config/users/) — `booty setup` picks it up automatically:
+Set `secrets_url` in [your user config](bootstrap/archlinux/config/users/). Bootstrap writes it to `~/.booty/config`; `booty sync` reads it.
 
 ```yaml
 # bootstrap/$BOOTY_OS/config/users/$USER.yaml
+repo_url: git@github.com:yourname/booty.git
 secrets_url: gcrypt::git@github.com:yourname/booty-secrets.git
 ```
 
+Requires GPG, git-remote-gcrypt, and age. Bootstrap installs them on supported OSes.
+
 ### GPG
 
-If you don't have a GPG key yet, [create one](https://docs.github.com/en/authentication/managing-commit-signature-verification/generating-a-new-gpg-key) first.
-
-Export your keys to a passphrase-protected archive and store it somewhere secure and accessible from new machines — a password manager attachment, encrypted cloud storage, or an offline backup:
+Export keys to a passphrase-protected archive and store it somewhere secure:
 
 ```sh
 booty gpg export /path/to/gnupg.tar.gz.age
 ```
 
-On a new host, import before running `booty setup`. Place the archive at `~/.booty/gnupg.tar.gz.age` for automatic import, or import explicitly:
+On a new host, place the archive at `~/.booty/gnupg.tar.gz.age` for automatic import, or import it explicitly:
 
 ```sh
 booty gpg import /path/to/gnupg.tar.gz.age
-booty setup
+booty sync
 ```
 
 ## Bootstrap
 
-`booty-bootstrap` provisions the OS. Run by the installer; rerun anytime to converge:
+`booty-bootstrap` provisions the OS for the current sudo-capable user:
 
 ```sh
 booty-bootstrap           # full bootstrap
-booty-bootstrap config    # print resolved config (dry run)
+booty-bootstrap config    # print resolved config
 ```
 
-Add support for a new OS by creating `bootstrap/$OS/` with numbered scripts and config:
+Bootstrap state lives under `~/.booty/bootstrap`. `booty-bootstrap config` prints resolved `BOOTY_*` / `BOOTSTRAP_*` variables and exits before provisioning. Full bootstrap finishes by running `booty sync` as the target user.
+
+Add an OS by creating `bootstrap/$OS/`:
 
 ```text
-bootstrap/$OS/config/base.yaml          # feature definitions
-bootstrap/$OS/config/hosts/$host.yaml   # host packages and features
-bootstrap/$OS/config/users/$user.yaml   # booty_url, secrets_url
-bootstrap/$OS/00-config.sh              # resolve config (numbered scripts run in order)
-bootstrap/$OS/hosts/$host.sh            # host hook (optional)
-bootstrap/$OS/users/$user.sh            # user hook (optional)
+bootstrap/$OS/config/base.yaml
+bootstrap/$OS/config/hosts/$host.yaml
+bootstrap/$OS/config/users/$user.yaml
+bootstrap/$OS/00-config.sh
+bootstrap/$OS/hosts/$host.sh
+bootstrap/$OS/users/$user.sh
 ```
 
 ### Arch Linux
 
-See [`bootstrap/archlinux/`](bootstrap/archlinux/). Config is composed from `base.yaml` → host yaml → user yaml:
+Arch config merges `base.yaml` -> host yaml -> user yaml:
 
 ```yaml
-features:          # reusable bundles of packages/services defined in base.yaml
-enabled_features:  # features to activate for this host
-pacman:            # additional packages
+features:          # reusable package/service bundles
+enabled_features:  # features enabled for this host
+pacman:            # additional pacman packages
 aur:               # AUR packages
 services:          # systemd services to enable
 ```
 
 ## Layout
 
-Dotfiles live under [`dotfiles/`](dotfiles/), mapped directly to target paths:
+Dotfiles map directly to target paths:
 
 ```text
-dotfiles/$BOOTY_OS/rootfs/home/$USER/  ->  ~/           (home files)
-dotfiles/$BOOTY_OS/rootfs/             ->  /            (system files, applied via sudo)
-dotfiles/$BOOTY_OS/hosts/$host/rootfs/ ->  /            (host overlay)
+dotfiles/$BOOTY_OS/rootfs/home/$USER/  ->  ~/
+dotfiles/$BOOTY_OS/rootfs/             ->  /
+dotfiles/$BOOTY_OS/hosts/$host/rootfs/ ->  /
 ```
 
-When a secrets checkout is configured it overlays the public one, each with its own manifest.
+Secrets overlay the public checkout and keep separate manifests.
 
 ## Development
 
@@ -139,9 +148,9 @@ Run from a checkout without installing:
 BOOTSTRAP_ROOT="$PWD/bootstrap/archlinux" ./bin/booty-bootstrap config
 ```
 
-`booty-bootstrap` defaults to `~/.booty/booty/bootstrap/$BOOTY_OS`, matching an installed system. Set `BOOTSTRAP_ROOT` when testing bootstrap scripts from a development checkout.
+`booty-bootstrap` defaults to `~/.booty/booty/bootstrap/$BOOTY_OS`. Set `BOOTSTRAP_ROOT` for development checkouts and `BOOTSTRAP_CONFIG_DIR` to redirect generated config.
 
-To run a real bootstrap from a development checkout before the public repo is available, point setup back at the local clone:
+To bootstrap from a development checkout, point sync back at the local clone:
 
 ```sh
 BOOTSTRAP_ROOT="$PWD/bootstrap/archlinux" \
@@ -150,16 +159,18 @@ DEBUG=1 \
   ./bin/booty-bootstrap
 ```
 
-Run shellcheck + bats:
+Set `BOOTSTRAP_SKIP_REFLECTOR=1` to skip Arch mirror rating in CI or throwaway containers.
+
+Run the regular suite:
 
 ```sh
 ./bin/ci
 ```
 
-Run the Arch Linux bootstrap simulation:
+Run the Arch bootstrap simulation:
 
 ```sh
 BOOTY_CI=archlinux ./bin/ci
 ```
 
-[`gitbooty`](bin/gitbooty) is the rendering engine — it builds a layered file manifest, applies files via git plumbing, tracks drift, and writes machine edits back on `commit`.
+[`gitbooty`](bin/gitbooty) renders layered dotfiles, applies them with git plumbing, tracks drift, and writes machine edits back on `commit`.

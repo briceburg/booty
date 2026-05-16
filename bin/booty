@@ -11,27 +11,27 @@ case "${1:-status}" in
     cat <<EOF
 usage: booty <command> [args]
 
-commands: pull apply status diff add rm mv commit setup gpg
+commands: pull apply status diff add rm mv commit sync gpg
 git commands: branch config remote log show fetch tag push
 
 Use 'booty-secrets <command>' to operate on the secrets checkout.
 EOF
     ;;
-  setup)
-    booty_setup
+  sync)
+    booty_sync
     ;;
   gpg)
     shift
     booty_gpg "$@"
     ;;
   bootstrap)
-    die "use 'booty setup' for repo setup; use 'booty-bootstrap' for OS bootstrap"
+    die "use 'booty sync' for repo sync; use 'booty-bootstrap' for OS bootstrap"
     ;;
   *)
     if [ -n "$BOOTY_SECRETS" ]; then
       repo="$booty_secrets_repo"
       export BOOTY_MANIFEST_PREFIX=secrets
-      [ -d "$repo/.git" ] || die "missing secrets checkout: $repo; run 'booty setup'"
+      [ -d "$repo/.git" ] || die "missing secrets checkout: $repo; run 'booty sync'"
     else
       repo="$booty_repo"
       [ -d "$repo/.git" ] || die "missing public checkout: $repo; run install or clone your repo there"
