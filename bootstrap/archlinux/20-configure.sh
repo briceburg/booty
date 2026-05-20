@@ -1,5 +1,4 @@
-user_home="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"
-[ -n "$user_home" ] || die "cannot find home directory for $BOOTSTRAP_USER"
+user_home="$(passwd_home "$BOOTSTRAP_USER")"
 
 install_aur(){
   local aur="$1" aur_dir pkg aur_packages=()
@@ -9,10 +8,11 @@ install_aur(){
   else
     as_user "$BOOTSTRAP_USER" git -C "$user_home/git/AUR" clone "https://aur.archlinux.org/$aur.git" "$aur"
   fi
-  as_user "$BOOTSTRAP_USER" makepkg --noconfirm --force -D "$aur_dir"
+  as_user_in "$BOOTSTRAP_USER" "$aur_dir" makepkg --noconfirm --force
   while IFS= read -r pkg; do
+    [[ "$pkg" = /* ]] || pkg="$aur_dir/$pkg"
     [ ! -f "$pkg" ] || aur_packages+=("$pkg")
-  done < <(as_user "$BOOTSTRAP_USER" makepkg --packagelist -D "$aur_dir")
+  done < <(as_user_in "$BOOTSTRAP_USER" "$aur_dir" makepkg --packagelist)
   ((${#aur_packages[@]})) || die "AUR build produced no packages: $aur"
   pacman -U --noconfirm --needed "${aur_packages[@]}"
 }

@@ -9,8 +9,7 @@ setup_install_remote() {
   remote="$TEST_ROOT/remote"
   home="$TEST_ROOT/home"
   mkdir -p "$remote/bin" "$home"
-  writef "$remote/bin" booty-bootstrap '#!/usr/bin/env bash' "$1"
-  chmod +x "$remote/bin/booty-bootstrap"
+  xwritef "$remote/bin" booty-bootstrap '#!/usr/bin/env bash' "$1"
   git_init "$remote"
 }
 
@@ -30,8 +29,7 @@ setup_install_remote() {
 
   env HOME="$home" BOOTY_REPO_URL="file://$remote" INSTALL_MARKER="$TEST_ROOT/marker" "$TEST_REPO/install"
 
-  writef "$remote/bin" booty-bootstrap '#!/usr/bin/env bash' 'echo new > "$INSTALL_MARKER"'
-  chmod +x "$remote/bin/booty-bootstrap"
+  xwritef "$remote/bin" booty-bootstrap '#!/usr/bin/env bash' 'echo new > "$INSTALL_MARKER"'
   git_commit_all "$remote" new
 
   run env HOME="$home" BOOTY_REPO_URL="file://$remote" INSTALL_MARKER="$TEST_ROOT/marker" "$TEST_REPO/install"
