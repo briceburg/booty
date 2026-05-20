@@ -46,8 +46,7 @@ id -u "$BOOTSTRAP_USER" &>/dev/null || {
   passwd -l "$BOOTSTRAP_USER" >/dev/null
 }
 
-user_home="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"
-[ -n "$user_home" ] || die "cannot find home directory for $BOOTSTRAP_USER"
+user_home="$(passwd_home "$BOOTSTRAP_USER")"
 BOOTY_HOME="$user_home/.booty"
 export BOOTY_HOME
 

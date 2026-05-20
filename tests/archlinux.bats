@@ -85,16 +85,14 @@ has_output() {
   cp "$TEST_REPO/lib/booty.sh" "$BOOTY_ROOT/lib/"
   cp "$TEST_REPO/lib/booty-bootstrap.sh" "$BOOTY_ROOT/lib/"
   mkdir -p "$BOOTY_HOME/booty/bin"
-  writef "$BOOTY_HOME/booty/bin" booty '#!/usr/bin/env bash' 'echo "booty $*" >> "$BOOTY_ORDER"'
-  chmod +x "$BOOTY_HOME/booty/bin/booty"
+  xwritef "$BOOTY_HOME/booty/bin" booty '#!/usr/bin/env bash' 'echo "booty $*" >> "$BOOTY_ORDER"'
   writef "$FIXTURE_REPO/bootstrap/archlinux" 00-config.sh 'export BOOTSTRAP_USER=root' 'echo 00-config >> "$BOOTY_ORDER"'
   chmod +x "$BOOTY_ROOT/bin/booty-bootstrap"
-  writef "$TEST_ROOT/bin" sudo \
+  xwritef "$TEST_ROOT/bin" sudo \
     '#!/usr/bin/env bash' \
     'while [ "$1" != env ]; do shift; done' \
     'shift' \
     'exec env "$@"'
-  chmod +x "$TEST_ROOT/bin/sudo"
   export PATH="$TEST_ROOT/bin:$PATH"
   export BOOTY_ORDER="$TEST_ROOT/order"
 

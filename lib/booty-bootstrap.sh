@@ -37,6 +37,13 @@ add_yaml(){
   while IFS= read -r item; do add "$1" "$item"; done < <(yaml "$BOOTSTRAP_CONFIG" "$2[]")
 }
 
+passwd_home(){
+  local home
+  home="$(getent passwd "$1" | cut -d: -f6)"
+  [ -n "$home" ] || die "cannot find home directory for $1"
+  echo "$home"
+}
+
 bootstrap_need_yq(){
   yq --version 2>/dev/null | grep -qi mikefarah || die "booty expects Mike Farah yq"
 }
@@ -83,6 +90,12 @@ as_user(){
   fi
 }
 
+as_user_in(){
+  local user="$1" dir="$2"
+  shift 2
+  as_user "$user" env BOOTY_WORKDIR="$dir" bash -c "cd \"\$BOOTY_WORKDIR\" && exec \"\$@\"" bash "$@"
+}
+
 sudo_env_exec(){
   local env=() name
   while [ "$1" != -- ]; do
@@ -111,8 +124,7 @@ bootstrap_apply_rootfs(){
   local path user_home
   [ "${BOOTSTRAP_TARGET_READY:-0}" = 1 ] || return 0
   [ "${BOOTSTRAP_ROOTFS_APPLIED:-0}" != 1 ] || return 0
-  user_home="$(getent passwd "$BOOTSTRAP_USER" | cut -d: -f6)"
-  [ -n "$user_home" ] || die "cannot find home directory for $BOOTSTRAP_USER"
+  user_home="$(passwd_home "$BOOTSTRAP_USER")"
   [ -x "$BOOTY_HOME/booty/bin/booty" ] || die "missing target checkout command: $BOOTY_HOME/booty/bin/booty"
 
   log "applying bootstrap rootfs from target checkout"
