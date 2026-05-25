@@ -24,19 +24,7 @@ esac
 export BOOTSTRAP_CMD="$cmd"
 [ -n "${BOOTSTRAP_USER:-}" ] || [ "$EUID" -eq 0 ] || export BOOTSTRAP_USER="$BOOTY_USER"
 
-[ "$BOOTSTRAP_CMD" != bootstrap ] || [ "$EUID" -eq 0 ] || sudo_env_exec \
-  BOOTSTRAP_CONFIG_DIR \
-  BOOTSTRAP_ROOT \
-  BOOTSTRAP_SKIP_REFLECTOR \
-  BOOTSTRAP_USER \
-  BOOTY_AGE_IDENTITY \
-  BOOTY_HOME \
-  BOOTY_HOST \
-  BOOTY_OS \
-  BOOTY_REPO_URL \
-  BOOTY_SECRETS_URL \
-  DEBUG \
-  -- "$0" "$@"
+[ "$BOOTSTRAP_CMD" != bootstrap ] || [ "$EUID" -eq 0 ] || sudo_env_exec "${BOOTSTRAP_ENV[@]}" -- "$0" "$@"
 
 if [ "$BOOTSTRAP_CMD" = config ]; then
   config_script="$BOOTSTRAP_ROOT/00-config.sh"

@@ -6,9 +6,36 @@ has(){ local x="$1" y; shift; for y; do [ "$x" = "$y" ] && return 0; done; retur
 add(){ declare -n a="$1"; local x; shift; for x; do [ -n "$x" ] && ! has "$x" "${a[@]:-}" && a+=("$x"); done; }
 yaml(){ yq eval -r "$2" "$1" 2>/dev/null | sed '/^null$/d;/^$/d'; }
 
+BOOTSTRAP_ENV=(
+  BOOTSTRAP_CONFIG_DIR
+  BOOTSTRAP_ROOT
+  BOOTSTRAP_SKIP_REFLECTOR
+  BOOTSTRAP_USER
+  BOOTY_AGE_IDENTITY
+  BOOTY_HOME
+  BOOTY_HOST
+  BOOTY_OS
+  BOOTY_REPO_URL
+  BOOTY_ROOT
+  BOOTY_SECRETS_URL
+  BOOTY_SKIP_ROOTFS
+  BOOTY_USER
+  DEBUG
+)
+
 own_config(){
   [ "$EUID" -eq 0 ] && [ -n "${BOOTSTRAP_USER:-}" ] && id -u "$BOOTSTRAP_USER" >/dev/null 2>&1 || return 0
   chown -h "$BOOTSTRAP_USER:" "$@"
+}
+
+own_user_paths(){
+  local path user="$1"
+  shift
+  for path in "$@"; do
+    [ -e "$path" ] || [ -L "$path" ] || continue
+    [ ! -L "$path" ] || die "refusing symlinked bootstrap-owned path: $path"
+    chown -h "$user:" "$path"
+  done
 }
 
 prep_config_dir(){
@@ -17,19 +44,36 @@ prep_config_dir(){
   own_config "$BOOTSTRAP_CONFIG_DIR"
 }
 
+write_config(){
+  local file="$1" tmp
+  [ ! -L "$file" ] || die "refusing symlinked bootstrap config file: $file"
+  tmp="$(mktemp "$(dirname "$file")/.${file##*/}.XXXXXX")"
+  cat > "$tmp"
+  own_config "$tmp"
+  mv "$tmp" "$file"
+}
+
 yaml_merge(){
+  local tmp
   prep_config_dir
-  yq eval-all -o=yaml ". as \$item ireduce ({}; . *+ \$item)" "$@" > "$BOOTSTRAP_CONFIG"
-  own_config "$BOOTSTRAP_CONFIG"
+  [ ! -L "$BOOTSTRAP_CONFIG" ] || die "refusing symlinked bootstrap config file: $BOOTSTRAP_CONFIG"
+  tmp="$(mktemp "$(dirname "$BOOTSTRAP_CONFIG")/.${BOOTSTRAP_CONFIG##*/}.XXXXXX")"
+  yq eval-all -o=yaml ". as \$item ireduce ({}; . *+ \$item)" "$@" > "$tmp"
+  own_config "$tmp"
+  mv "$tmp" "$BOOTSTRAP_CONFIG"
 }
 
 ask(){
   local file="$BOOTSTRAP_CONFIG_DIR/$1" default="$2" answer
   prep_config_dir
-  [ -e "$file" ] || echo "$default" > "$file"
-  if [ -t 0 ]; then read -rp "$1? : " -i "$(<"$file")" -e answer; else answer="$(<"$file")"; fi
-  echo "${answer:-$default}" > "$file"
-  own_config "$file"
+  [ ! -L "$file" ] || die "refusing symlinked bootstrap config file: $file"
+  [ -e "$file" ] || printf '%s\n' "$default" | write_config "$file"
+  if [ -t 0 ]; then
+    read -rp "$1? : " -i "$(<"$file")" -e answer
+  else
+    answer="$(<"$file")"
+  fi
+  printf '%s\n' "${answer:-$default}" | write_config "$file"
 }
 
 add_yaml(){
@@ -69,18 +113,7 @@ bootstrap_dump_env(){
 as_user(){
   local env=() name user="$1"
   shift
-  for name in \
-    BOOTY_AGE_IDENTITY \
-    BOOTY_HOME \
-    BOOTY_HOST \
-    BOOTY_OS \
-    BOOTY_REPO_URL \
-    BOOTY_ROOT \
-    BOOTY_SECRETS_URL \
-    BOOTY_SKIP_ROOTFS \
-    BOOTY_USER \
-    DEBUG
-  do
+  for name in "${BOOTSTRAP_ENV[@]}"; do
     env+=("$name=${!name:-}")
   done
   if [ "$EUID" -eq 0 ] && [ "$user" = root ]; then
@@ -98,8 +131,12 @@ as_user_in(){
 
 sudo_env_exec(){
   local env=() name
+  (($#)) || die "sudo_env_exec missing --"
   while [ "$1" != -- ]; do
-    name="$1"; env+=("$name=${!name:-}"); shift
+    (($# > 1)) || die "sudo_env_exec missing --"
+    name="$1"
+    env+=("$name=${!name:-}")
+    shift
   done
   shift
   exec sudo env "${env[@]}" "$@"
@@ -121,7 +158,7 @@ source_bootstrap(){
 }
 
 bootstrap_apply_rootfs(){
-  local path user_home
+  local user_home
   [ "${BOOTSTRAP_TARGET_READY:-0}" = 1 ] || return 0
   [ "${BOOTSTRAP_ROOTFS_APPLIED:-0}" != 1 ] || return 0
   user_home="$(passwd_home "$BOOTSTRAP_USER")"
@@ -130,9 +167,13 @@ bootstrap_apply_rootfs(){
   log "applying bootstrap rootfs from target checkout"
   env BOOTY_USER="$BOOTSTRAP_USER" HOME="$user_home" BOOTY_HOME="$BOOTY_HOME" BOOTY_SKIP_HOME=1 "$BOOTY_HOME/booty/bin/booty" apply
   if [ "$EUID" -eq 0 ]; then
-    for path in "$BOOTY_HOME/tmp" "$user_home/.local"; do
-      [ ! -e "$path" ] || chown -R "$BOOTSTRAP_USER:" "$path"
-    done
+    as_user "$BOOTSTRAP_USER" mkdir -p "$BOOTY_HOME/tmp" "$user_home/.local/share/booty"
+    own_user_paths "$BOOTSTRAP_USER" \
+      "$BOOTY_HOME/tmp" \
+      "$user_home/.local" \
+      "$user_home/.local/share" \
+      "$user_home/.local/share/booty" \
+      "$user_home/.local/share/booty/rootfs.manifest.tsv"
   fi
   BOOTSTRAP_ROOTFS_APPLIED=1
 }

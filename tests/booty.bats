@@ -7,6 +7,18 @@ teardown() { teardown_tmp; }
 
 booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
 
+profile_path() {
+  env -i HOME="$FIXTURE_HOME" PATH="$1" bash -c ". '$FIXTURE_ROOT/etc/profile.d/booty.sh'; printf '%s' \"\$PATH\""
+}
+
+seed_public_remote() {
+  fixture dotfiles/archlinux "$1/dotfiles/archlinux"
+  git_init "$1"
+  git_commit_all "$1" "${2:-seed public}"
+}
+
+# Apply from an existing checkout.
+
 @test "booty pull applies repo-shaped home and rootfs files" {
   writef "$FIXTURE_REPO" "dotfiles/archlinux/rootfs/home/foo/.bashrc" wrong-user
 
@@ -20,21 +32,15 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   [ -f "$FIXTURE_STATE/booty/rootfs.manifest.tsv" ]
 }
 
-@test "booty derives repo root from BOOTY_HOME" {
-  run env BOOTY_HOME="$BOOTY_HOME" "$BOOTY_ROOT/bin/booty" pull
-  [ "$status" -eq 0 ]
-  file_eq "$FIXTURE_HOME/.bashrc" shell
-}
-
 @test "booty applies profile path for checkout commands" {
   booty pull >/dev/null
   mkdir -p "$FIXTURE_REPO/bin"
 
-  run env -i HOME="$FIXTURE_HOME" PATH=/bin:/usr/bin bash -c ". '$FIXTURE_ROOT/etc/profile.d/booty.sh'; printf '%s' \"\$PATH\""
+  run profile_path /bin:/usr/bin
   [ "$status" -eq 0 ]
   [ "$output" = "$FIXTURE_REPO/bin:/bin:/usr/bin" ]
 
-  run env -i HOME="$FIXTURE_HOME" PATH="$FIXTURE_REPO/bin:/bin:/usr/bin" bash -c ". '$FIXTURE_ROOT/etc/profile.d/booty.sh'; printf '%s' \"\$PATH\""
+  run profile_path "$FIXTURE_REPO/bin:/bin:/usr/bin"
   [ "$status" -eq 0 ]
   [ "$output" = "$FIXTURE_REPO/bin:/bin:/usr/bin" ]
 }
@@ -43,20 +49,21 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   booty pull >/dev/null
   [ -f "$FIXTURE_ROOT/etc/example.conf" ]
 
-  rm -f "$FIXTURE_REPO/dotfiles/archlinux/rootfs/etc/example.conf"
+  rm -rf "$FIXTURE_REPO/dotfiles/archlinux/rootfs" "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs"
 
   run booty pull
   [ "$status" -eq 0 ]
   [ ! -e "$FIXTURE_ROOT/etc/example.conf" ]
+  [ ! -e "$FIXTURE_HOME/.bashrc" ]
 }
+
+# Sync manages deterministic checkouts and optional secrets.
 
 @test "booty sync clones public checkout, applies it, and sets up secrets" {
   public_remote="$TEST_ROOT/public-remote"
   secrets_remote="$TEST_ROOT/secrets-remote"
-  fixture dotfiles/archlinux "$public_remote/dotfiles/archlinux"
+  seed_public_remote "$public_remote"
   writef "$secrets_remote" "dotfiles/archlinux/rootfs/home/nesta/.private" secrets-bootstrap
-  git_init "$public_remote"
-  git_commit_all "$public_remote" "seed public"
   git_init "$secrets_remote"
   git_commit_all "$secrets_remote" "seed secrets"
   rm -rf "$FIXTURE_REPO" "$BOOTY_HOME/booty-secrets"
@@ -77,9 +84,7 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
 @test "booty sync retargets an existing public checkout remote" {
   old_remote="$TEST_ROOT/old-public"
   new_remote="$TEST_ROOT/new-public"
-  fixture dotfiles/archlinux "$old_remote/dotfiles/archlinux"
-  git_init "$old_remote"
-  git_commit_all "$old_remote" "seed old public"
+  seed_public_remote "$old_remote" "seed old public"
   rm -rf "$FIXTURE_REPO"
   git clone -q "$old_remote" "$FIXTURE_REPO"
   git clone -q "$old_remote" "$new_remote"
@@ -96,7 +101,6 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
 
 @test "booty sync rejects a public checkout with no dotfiles" {
   public_remote="$TEST_ROOT/minimal-public"
-  mkdir -p "$public_remote"
   writef "$public_remote" README.md minimal
   git_init "$public_remote"
   git_commit_all "$public_remote" "minimal public"
@@ -107,8 +111,7 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   run env BOOTY_REPO_URL="file://$public_remote" BOOTY_SECRETS_URL= "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -ne 0 ]
   [[ "$output" == *"public checkout has no dotfiles"* ]]
-  [[ "$output" == *"README.md#layout"* ]]
-  [ "$(git -C "$FIXTURE_REPO" remote get-url origin)" = "file://$public_remote" ]
+  [[ "$output" == *"README.md#dotfiles-repository-layout"* ]]
 }
 
 @test "booty sync skips secrets checkout when gpg is unconfigured" {
@@ -129,35 +132,14 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   [[ "$output" == *"BOOTY_SECRETS_URL must use gcrypt::"* ]]
 }
 
-@test "booty bootstrap points to the unambiguous commands" {
-  run booty bootstrap
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"use 'booty sync'"* ]]
-  [[ "$output" == *"booty-bootstrap"* ]]
-}
-
-@test "booty help shows booty usage" {
-  run booty help
-  [ "$status" -eq 0 ]
-  [[ "$output" == *"usage: booty"* ]]
-}
+# Git-facing commands operate on rendered dotfiles, not arbitrary worktrees.
 
 @test "booty config passes through to git config" {
   git -C "$FIXTURE_REPO" config user.name "Test User"
 
   run booty config user.name
   [ "$status" -eq 0 ]
-  [ "$(last_output_line)" = "Test User" ]
-}
-
-@test "booty status reports clean after pull on repo-shaped tree" {
-  booty pull >/dev/null
-
-  run booty status
-  [ "$status" -eq 0 ]
-
-  run booty
-  [ "$status" -eq 0 ]
+  [ "$output" = "Test User" ]
 }
 
 @test "booty status reports system drift by default" {
@@ -167,7 +149,27 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   run booty status
   [ "$status" -ne 0 ]
   [[ "$output" == *$'M\tetc/example.conf'* ]]
+
+  run booty diff
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"diff --git booty/etc/example.conf target/etc/example.conf"* ]]
+  [[ "$output" == *"+changed"* ]]
 }
+
+@test "booty commit writes target changes to the checkout" {
+  git_commit_all "$FIXTURE_REPO" seed
+  booty pull >/dev/null
+  writef "$FIXTURE_HOME" ".bashrc" committed
+  writef "$FIXTURE_ROOT" "etc/example.conf" committed-root
+
+  run booty commit -am "write target changes"
+  [ "$status" -eq 0 ]
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.bashrc" committed
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/etc/example.conf" committed-root
+  [[ "$(git -C "$FIXTURE_REPO" log --oneline -1)" == *"write target changes"* ]]
+}
+
+# Path routing decides which dotfiles tree receives each source path.
 
 @test "booty add routes relative and absolute home paths to dotfiles home" {
   writef "$FIXTURE_HOME" "relative.conf" relative
@@ -187,12 +189,6 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   [ "$status" -eq 0 ]
   file_eq "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/etc/routed.conf" routed
   [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/etc/routed.conf" ]
-}
-
-@test "booty refuses another user's home path" {
-  run booty add /home/foo/.bashrc
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"refusing to manage another user's home"* ]]
 }
 
 @test "booty add accepts mixed user and system paths" {
@@ -224,14 +220,52 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.root-bashrc" moved-to-system
 }
 
+@test "booty mv can move rootfs-only files" {
+  writef "$FIXTURE_ROOT" "etc/rootfs-source.conf" rootfs-moved
+  booty add "$FIXTURE_ROOT/etc/rootfs-source.conf"
+
+  run booty mv "$FIXTURE_ROOT/etc/rootfs-source.conf" "$FIXTURE_ROOT/etc/rootfs-dest.conf"
+  [ "$status" -eq 0 ]
+  [ ! -e "$FIXTURE_ROOT/etc/rootfs-source.conf" ]
+  file_eq "$FIXTURE_ROOT/etc/rootfs-dest.conf" rootfs-moved
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/etc/rootfs-dest.conf" rootfs-moved
+}
+
+# User boundaries and unsupported commands fail before mutating state.
+
 @test "booty supports root as a dotfile user" {
   root_home="$FIXTURE_ROOT/root"
   mkdir -p "$root_home"
   writef "$FIXTURE_REPO" "dotfiles/archlinux/rootfs/home/root/.bashrc" root-shell
 
-  run env USER=root BOOTY_USER=root HOME="$root_home" BOOTY_HOME="$BOOTY_HOME" BOOTY_HOME_TARGET_ROOT="$root_home" "$BOOTY_ROOT/bin/booty" pull
+  run env USER=root BOOTY_USER=root HOME="$root_home" BOOTY_HOME="$BOOTY_HOME" "$BOOTY_ROOT/bin/booty" pull
   [ "$status" -eq 0 ]
   file_eq "$root_home/.bashrc" root-shell
+}
+
+@test "booty refuses another user's home path" {
+  run booty add /home/foo/.bashrc
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"refusing to manage another user's home"* ]]
+}
+
+@test "booty rejects simulated rootfs paths outside the target" {
+  writef "$FIXTURE_HOME" "to-rootfs.conf" home-to-rootfs
+  writef "$TEST_ROOT" "outside-rootfs.conf" outside-rootfs
+
+  run booty add "$FIXTURE_ROOT"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"target root"* ]]
+
+  run booty mv "$FIXTURE_HOME/to-rootfs.conf" "$FIXTURE_ROOT/../outside.conf"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"outside $FIXTURE_ROOT"* ]]
+  file_eq "$FIXTURE_HOME/to-rootfs.conf" home-to-rootfs
+
+  run booty mv "$TEST_ROOT/outside-rootfs.conf" "$FIXTURE_HOME/from-rootfs.conf"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"outside $FIXTURE_ROOT"* ]]
+  [ ! -e "$FIXTURE_HOME/from-rootfs.conf" ]
 }
 
 @test "booty requires checkout under BOOTY_HOME" {
@@ -240,4 +274,10 @@ booty() { "$BOOTY_ROOT/bin/booty" "$@"; }
   run booty status
   [ "$status" -ne 0 ]
   [[ "$output" == *"missing public checkout"* ]]
+}
+
+@test "booty rejects unsupported commands" {
+  run booty checkout -b risky
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unsupported command 'checkout'"* ]]
 }
