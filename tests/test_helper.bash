@@ -8,11 +8,6 @@ setup_tmp() {
 
 teardown_tmp() { rm -rf "${TEST_ROOT:-}"; }
 file_eq() { [ "$(cat "$1")" = "$2" ]; }
-last_output_line() {
-  local line last=
-  while IFS= read -r line; do last="$line"; done <<< "${output:-}"
-  printf '%s\n' "$last"
-}
 
 fixture() {
   mkdir -p "$2"

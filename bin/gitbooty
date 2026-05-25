@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -eo pipefail
+set -euo pipefail
 
 log(){ echo "$*" >&2 ; }
 dbg(){ if [ "${DEBUG:-0}" = 1 ]; then echo "  [debug:$(basename "$0")] $*" >&2; fi; }
@@ -33,14 +33,22 @@ usage() {
   cat <<'EOF'
 usage: gitbooty <command> [args]
 
-commands: apply pull status diff add rm mv commit
-git commands: branch config remote log show fetch tag push
+commands: apply status diff add rm mv commit
 env: GITBOOTY_REPO_ROOT GITBOOTY_WRITEBACK_ROOT GITBOOTY_TARGET_ROOT GITBOOTY_MANIFEST GITBOOTY_LAYERS
 EOF
 }
 
 ensure_data_dir() {
   mkdir -p "$(dirname "$manifest")"
+}
+
+manifest_tmp(){ mktemp "$(dirname "$manifest")/.${manifest##*/}.XXXXXX"; }
+
+replace_manifest(){
+  local tmp
+  tmp="$(manifest_tmp)"
+  cat > "$tmp"
+  mv "$tmp" "$manifest"
 }
 
 repo_git() {
@@ -53,17 +61,32 @@ cleanup_render_index() {
 }
 
 require_manifest() {
-  [ -f "$manifest" ] || die "no manifest; run 'pull' first"
+  [ -f "$manifest" ] || die "no manifest; run 'apply' first"
+}
+
+clean_path(){
+  local path="$1" part parts=() out=()
+  IFS=/ read -r -a parts <<< "${path#/}"
+  for part in "${parts[@]}"; do
+    case "$part" in
+      ""|.) ;;
+      ..) ((${#out[@]} == 0)) || unset "out[$((${#out[@]} - 1))]" ;;
+      *) out+=("$part") ;;
+    esac
+  done
+  local IFS=/
+  printf '/%s\n' "${out[*]}"
 }
 
 canonicalize_target() {
-  local path="$1"
-  case "$path" in
-    /*) printf '%s\n' "$path" ;;
-    \~) printf '%s\n' "$HOME" ;;
-    \~/*) printf '%s/%s\n' "$HOME" "${path#\~/}" ;;
-    *) printf '%s\n' "$PWD/$path" ;;
+  local path
+  case "$1" in
+    /*) path="$1" ;;
+    \~) path="$HOME" ;;
+    \~/*) path="$HOME/${1#\~/}" ;;
+    *) path="$PWD/$1" ;;
   esac
+  clean_path "$path"
 }
 
 relative_target() {
@@ -83,6 +106,26 @@ relative_target() {
       esac
       ;;
   esac
+}
+
+managed_rel(){
+  local rel="$1" part parts=()
+  if [ -z "$rel" ] || [[ "$rel" = /* ]]; then
+    die "managed target '$rel' is outside $target_root"
+  fi
+  IFS=/ read -r -a parts <<< "$rel"
+  for part in "${parts[@]}"; do
+    case "$part" in
+      ""|.|..) die "managed target '$rel' is outside $target_root" ;;
+    esac
+  done
+  printf '%s\n' "$rel"
+}
+
+target_path(){
+  local rel
+  rel="$(managed_rel "$1")"
+  clean_path "$target_root/$rel"
 }
 
 infer_source_rel() {
@@ -143,10 +186,16 @@ excluded() {
 }
 
 source_path() {
-  local rel="$1"
+  local rel="$1" path
   case "$rel" in
-    /*) printf '%s\n' "$rel" ;;
-    *) printf '%s\n' "$repo_root/$rel" ;;
+    /*) clean_path "$rel" ;;
+    *)
+      path="$(clean_path "$repo_root/$rel")"
+      case "$path" in
+        "$repo_root"/*) printf '%s\n' "$path" ;;
+        *) die "managed source '$rel' is outside $repo_root" ;;
+      esac
+      ;;
   esac
 }
 
@@ -183,8 +232,7 @@ copy_target_to_source() {
 drop_manifest_rel() {
   local rel="$1"
   [ -f "$manifest" ] || return 0
-  awk -F '\t' -v rel="$rel" '$1 != rel' "$manifest" > "$manifest.tmp"
-  mv "$manifest.tmp" "$manifest"
+  awk -F '\t' -v rel="$rel" '$1 != rel' "$manifest" | replace_manifest
 }
 
 init_render_index() {
@@ -202,6 +250,7 @@ init_render_index() {
 
   while IFS=$'\t' read -r rel source_rel; do
     [ -n "$rel" ] || continue
+    rel="$(managed_rel "$rel")"
     src="$(source_path "$source_rel")"
     [ -f "$src" ] || [ -L "$src" ] || die "managed source '$source_rel' is missing"
     mode="$(source_git_mode "$src")"
@@ -215,28 +264,52 @@ render_git() {
   GIT_INDEX_FILE="$render_tmp/index" GIT_WORK_TREE="$target_root" git --git-dir "$render_tmp/repo/.git" "$@"
 }
 
-prune_manifest_removals() {
-  local next_manifest="$1"
-  [ -f "$manifest" ] || return 0
-  awk -F '\t' 'FILENAME == ARGV[1] { keep[$1]=1; next } $1 && !($1 in keep) { print $1 }' "$next_manifest" "$manifest" |
-    while IFS= read -r rel; do rm -f -- "$target_root/$rel"; done
-}
-
-status_cmd() {
+refresh_render_index() {
   require_manifest
   init_render_index "$manifest"
   render_git update-index --refresh -q >/dev/null 2>&1 || true
-  render_git diff-files --name-status
-  if repo_git rev-parse --git-dir >/dev/null 2>&1; then
-    repo_git status --short
+}
+
+prune_manifest_removals() {
+  local next_manifest="$1" path
+  [ -f "$manifest" ] || return 0
+  awk -F '\t' 'FILENAME == ARGV[1] { keep[$1]=1; next } $1 && !($1 in keep) { print $1 }' "$next_manifest" "$manifest" |
+    while IFS= read -r rel; do
+      path="$(target_path "$rel")"
+      rm -f -- "$path"
+    done
+}
+
+apply_cmd() {
+  local next_manifest prefix="${target_root%/}/"
+
+  ensure_data_dir
+  next_manifest="$(manifest_tmp)"
+  build_manifest "$next_manifest"
+  if [ "${DEBUG:-0}" = 1 ]; then
+    dbg "apply_cmd: manifest entries: $(wc -l < "$next_manifest") files -> $target_root"
   fi
+  dbg "apply_cmd: layers=${layers[*]}"
+  dbg "apply_cmd: excludes=${excludes[*]}"
+  prune_manifest_removals "$next_manifest"
+  mv "$next_manifest" "$manifest"
+  mkdir -p "$target_root"
+  init_render_index "$manifest"
+  dbg "apply_cmd: checking out index into $prefix"
+  render_git checkout-index -f -a --prefix="$prefix"
+  if [ "${DEBUG:-0}" = 1 ]; then
+    dbg "apply_cmd: done. files in target: $(find "$target_root" -type f 2>/dev/null | wc -l)"
+  fi
+}
+
+status_cmd() {
+  refresh_render_index
+  render_git diff-files --name-status
   render_git diff-files --quiet
 }
 
 diff_cmd() {
-  require_manifest
-  init_render_index "$manifest"
-  render_git update-index --refresh -q >/dev/null 2>&1 || true
+  refresh_render_index
   render_git diff --no-ext-diff --src-prefix=booty/ --dst-prefix=target/ || true
 }
 
@@ -244,16 +317,16 @@ add_cmd() {
   local abs rel source_rel dest
   [ $# -eq 1 ] || die "usage: gitbooty add <path>"
   abs="$(canonicalize_target "$1")"
-  [ -e "$abs" ] || die "path '$abs' does not exist"
+  [ -e "$abs" ] || [ -L "$abs" ] || die "path '$abs' does not exist"
   rel="$(relative_target "$abs")"
+  [ -n "$rel" ] || die "refusing to add target root"
   source_rel="$(infer_source_rel "$rel")"
   dest="$(source_path "$source_rel")"
   copy_target_to_source "$abs" "$dest"
   repo_git add "$source_rel"
   ensure_data_dir
   drop_manifest_rel "$rel"
-  { [ -f "$manifest" ] && cat "$manifest"; printf '%s\t%s\n' "$rel" "$source_rel"; } | sort > "$manifest.tmp"
-  mv "$manifest.tmp" "$manifest"
+  { [ -f "$manifest" ] && cat "$manifest"; printf '%s\t%s\n' "$rel" "$source_rel"; } | sort | replace_manifest
 }
 
 rm_cmd() {
@@ -285,6 +358,8 @@ mv_cmd() {
   dst_abs="$(canonicalize_target "$2")"
   src_rel="$(relative_target "$src_abs")"
   dst_rel="$(relative_target "$dst_abs")"
+  [ -n "$src_rel" ] || die "refusing to move target root"
+  [ -n "$dst_rel" ] || die "refusing to move to target root"
   [ -e "$src_abs" ] || [ -L "$src_abs" ] || die "path '$src_abs' does not exist"
   source_rel=""
   [ -f "$manifest" ] && source_rel="$(manifest_source_rel "$src_rel")"
@@ -292,18 +367,21 @@ mv_cmd() {
   source="$(source_path "$source_rel")"
   dest_rel="$(infer_source_rel "$dst_rel")"
   dest="$(source_path "$dest_rel")"
-  if [ -e "$source" ] || [ -L "$source" ]; then
-    mkdir -p "$(dirname "$dst_abs")"
-    mv "$src_abs" "$dst_abs"
-    mkdir -p "$(dirname "$dest")"
-    mv "$source" "$dest"
-    repo_git rm -f --ignore-unmatch -- "$source_rel"
-    repo_git add -- "$dest_rel"
-    awk -F '\t' -v src="$src_rel" -v dst="$dst_rel" -v newrel="$dest_rel" 'BEGIN { OFS="\t" } $1 == src { $1=dst; $2=newrel } { print }' "$manifest" > "$manifest.tmp"
-    mv "$manifest.tmp" "$manifest"
-  else
-    die "tracked source '$source_rel' is missing from the repo"
+  if [ -e "$dst_abs" ] || [ -L "$dst_abs" ]; then
+    die "destination '$dst_abs' already exists"
   fi
+  if [ -e "$dest" ] || [ -L "$dest" ]; then
+    die "destination source '$dest_rel' already exists"
+  fi
+  [ -e "$source" ] || [ -L "$source" ] || die "tracked source '$source_rel' is missing from the repo"
+
+  mkdir -p "$(dirname "$dst_abs")"
+  mv "$src_abs" "$dst_abs"
+  mkdir -p "$(dirname "$dest")"
+  mv "$source" "$dest"
+  repo_git rm -f --ignore-unmatch -- "$source_rel"
+  repo_git add -- "$dest_rel"
+  awk -F '\t' -v src="$src_rel" -v dst="$dst_rel" -v newrel="$dest_rel" 'BEGIN { OFS="\t" } $1 == src { $1=dst; $2=newrel } { print }' "$manifest" | replace_manifest
 }
 
 sync_manifest_to_source() {
@@ -311,50 +389,21 @@ sync_manifest_to_source() {
   [ -f "$manifest" ] || return 0
   while IFS=$'\t' read -r rel source_rel; do
     [ -n "$rel" ] || continue
-    src="$target_root/$rel"
+    src="$(target_path "$rel")"
     dst="$(source_path "$source_rel")"
     if [ -e "$src" ] || [ -L "$src" ]; then
       copy_target_to_source "$src" "$dst"
       repo_git add "$source_rel"
-    elif [ -e "$dst" ]; then
-      repo_git rm -f -- "$source_rel"
+    else
+      repo_git rm -f --ignore-unmatch -- "$source_rel"
+      [ ! -L "$dst" ] || rm -f -- "$dst"
     fi
   done < "$manifest"
 }
 
 commit_cmd() {
+  [ $# -eq 0 ] || die "usage: gitbooty commit"
   sync_manifest_to_source
-  repo_git commit "$@"
-}
-
-
-pull_cmd() {
-  if repo_git remote get-url origin >/dev/null 2>&1; then
-    repo_git pull --ff-only
-  fi
-  apply_cmd
-}
-
-apply_cmd() {
-  local next_manifest="${manifest}.next"
-  local prefix="${target_root%/}/"
-
-  ensure_data_dir
-  build_manifest "$next_manifest"
-  if [ "${DEBUG:-0}" = 1 ]; then
-    dbg "apply_cmd: manifest entries: $(wc -l < "$next_manifest") files -> $target_root"
-  fi
-  dbg "apply_cmd: layers=${layers[*]}"
-  dbg "apply_cmd: excludes=${excludes[*]}"
-  prune_manifest_removals "$next_manifest"
-  mv "$next_manifest" "$manifest"
-  mkdir -p "$target_root"
-  init_render_index "$manifest"
-  dbg "apply_cmd: checking out index into $prefix"
-  render_git checkout-index -f -a --prefix="$prefix"
-  if [ "${DEBUG:-0}" = 1 ]; then
-    dbg "apply_cmd: done. files in target: $(find "$target_root" -type f 2>/dev/null | wc -l)"
-  fi
 }
 
 case "${1:-help}" in
@@ -365,9 +414,14 @@ esac
 [ -n "$target_root" ] || die "GITBOOTY_TARGET_ROOT is required"
 [ -n "$manifest" ] || die "GITBOOTY_MANIFEST is required"
 ((${#layers[@]})) || die "GITBOOTY_LAYERS is required"
+repo_root="$(canonicalize_target "$repo_root")"
+writeback_root="$(canonicalize_target "$writeback_root")"
+target_root="$(canonicalize_target "$target_root")"
+for i in "${!layers[@]}"; do
+  layers[i]="$(canonicalize_target "${layers[i]}")"
+done
 trap cleanup_render_index EXIT
 case "$1" in
-  apply|pull|status|diff|add|rm|mv|commit) "${1}_cmd" "${@:2}" ;;
-  branch|config|remote|log|show|fetch|tag|push) repo_git "$@" ;;
+  apply|status|diff|add|rm|mv|commit) "${1}_cmd" "${@:2}" ;;
   *) usage; die "unsupported command '$1'" ;;
 esac

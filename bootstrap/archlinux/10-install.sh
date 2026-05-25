@@ -52,7 +52,7 @@ export BOOTY_HOME
 
 [ "$BOOTSTRAP_USER" = root ] || add_user_groups "$BOOTSTRAP_USER" docker log libvirt rfkill video uucp wheel
 
-as_user "$BOOTSTRAP_USER" mkdir -p "$BOOTY_HOME" "$user_home/bin" "$user_home/git/AUR" "$user_home/tmp"
+as_user "$BOOTSTRAP_USER" mkdir -p "$BOOTY_HOME" "$BOOTY_HOME/tmp" "$user_home/bin" "$user_home/git/AUR" "$user_home/tmp" "$user_home/.local/share/booty"
 {
   printf "BOOTY_REPO_URL=\${BOOTY_REPO_URL:-%q}\n" "$BOOTY_REPO_URL"
   [ -z "$BOOTY_SECRETS_URL" ] || printf "BOOTY_SECRETS_URL=\${BOOTY_SECRETS_URL:-%q}\n" "$BOOTY_SECRETS_URL"
@@ -62,8 +62,6 @@ log "wrote booty runtime config: $BOOTY_HOME/config"
 if [ ! -d "$BOOTY_HOME/booty/.git" ]; then
   log "cloning target checkout: $BOOTY_REPO_URL -> $BOOTY_HOME/booty"
   as_user "$BOOTSTRAP_USER" git clone "$BOOTY_REPO_URL" "$BOOTY_HOME/booty"
-else
-  chown -R "$BOOTSTRAP_USER:" "$BOOTY_HOME"
 fi
 
 export BOOTSTRAP_TARGET_READY=1

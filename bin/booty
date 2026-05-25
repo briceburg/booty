@@ -25,7 +25,7 @@ EOF
     die "use 'booty sync' for repo sync; use 'booty-bootstrap' for OS bootstrap"
     ;;
   *)
-    if [ -n "$BOOTY_SECRETS" ]; then
+    if [ -n "${BOOTY_SECRETS:-}" ]; then
       repo="$booty_secrets_repo"
       export BOOTY_MANIFEST_PREFIX=secrets
       [ -d "$repo/.git" ] || die "missing secrets checkout: $repo; run 'booty sync'"

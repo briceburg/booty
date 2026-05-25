@@ -14,6 +14,18 @@ teardown() {
   teardown_tmp
 }
 
+import_archive() {
+  env USER=nesta GNUPGHOME="$1" ARCHIVE="$2" expect -c '
+    set timeout 10
+    spawn $env(BOOTY_ROOT)/bin/booty gpg import $env(ARCHIVE)
+    expect -re "(?i)passphrase"
+    send "test-passphrase\r"
+    expect eof
+    catch wait result
+    exit [lindex $result 3]
+  '
+}
+
 @test "booty gpg exports and imports gpg home through age" {
   archive="$TEST_ROOT/gnupg.tar.gz.age"
   restored="$TEST_ROOT/restored-gnupg"
@@ -42,18 +54,10 @@ teardown() {
   rm -rf "$GNUPGHOME"
   mkdir -p "$restored"
 
-  run env USER=nesta GNUPGHOME="$restored/.gnupg" ARCHIVE="$archive" expect -c '
-    set timeout 10
-    spawn $env(BOOTY_ROOT)/bin/booty gpg import $env(ARCHIVE)
-    expect -re "(?i)passphrase"
-    send "test-passphrase\r"
-    expect eof
-    catch wait result
-    exit [lindex $result 3]
-  '
+  run import_archive "$restored/.gnupg" "$archive"
   [ "$status" -eq 0 ]
   GNUPGHOME="$restored/.gnupg" gpg --list-secret-keys --with-colons | grep -q '^sec'
 
-  run env USER=nesta GNUPGHOME="$restored/.gnupg" "$BOOTY_ROOT/bin/booty" gpg import "$archive"
+  run import_archive "$restored/.gnupg" "$archive"
   [ "$status" -eq 0 ]
 }
