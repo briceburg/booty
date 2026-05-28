@@ -41,10 +41,12 @@ has_output() {
   [[ "$output" == *'declare -x BOOTSTRAP_CMD="config"'* ]]
 }
 
-@test "archlinux config adds multilib packages only for multilib features" {
+@test "archlinux config enables multilib from feature config" {
+  writef "$FIXTURE_REPO/bootstrap/archlinux/config/hosts" multilib.yaml 'enabled_features:' '  - steam'
+
   run arch_config multilib
   [ "$status" -eq 0 ]
-  has_output 'declare -x BOOTSTRAP_MULTILIB="true"' '"base"' '"steam"' '"lib32-mesa"'
+  has_output 'declare -x BOOTSTRAP_MULTILIB="true"' '"steam"' '"lib32-mesa"'
 }
 
 @test "archlinux config handles users without config only when repo url is supplied" {
@@ -87,19 +89,12 @@ has_output() {
 
 # Bootstrap dispatch is order-sensitive because OS scripts are sourced in one shell.
 
-@test "sudo_env_exec requires an env separator" {
-  run bash -c ". '$BOOTY_ROOT/lib/booty.sh'; . '$BOOTY_ROOT/lib/booty-bootstrap.sh'; sudo_env_exec BOOTY_HOME"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"sudo_env_exec missing --"* ]]
-}
-
 @test "booty-bootstrap runs the flat bootstrap scripts in order" {
   export BOOTY_HOST=plain
   export USER=root
   export BOOTY_ROOT="$FIXTURE_REPO/runtime"
-  mkdir -p "$BOOTY_ROOT"/{bin,lib}
+  mkdir -p "$BOOTY_ROOT/bin"
   cp "$TEST_REPO/bin/booty-bootstrap" "$BOOTY_ROOT/bin/"
-  cp "$TEST_REPO"/lib/booty{,-bootstrap}.sh "$BOOTY_ROOT/lib/"
   mkdir -p "$BOOTY_HOME/booty/bin"
   xwritef "$BOOTY_HOME/booty/bin" booty '#!/usr/bin/env bash' 'echo "booty $*" >> "$BOOTY_ORDER"'
   writef "$FIXTURE_REPO/bootstrap/archlinux" 00-config.sh 'export BOOTSTRAP_USER=root' 'echo 00-config >> "$BOOTY_ORDER"'

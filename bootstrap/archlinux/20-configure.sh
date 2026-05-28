@@ -1,4 +1,4 @@
-user_home="$(passwd_home "$BOOTSTRAP_USER")"
+user_home="$(lookup_home "$BOOTSTRAP_USER")" || die "cannot find home directory for $BOOTSTRAP_USER"
 
 install_aur(){
   local aur="$1" aur_dir pkg aur_packages=()

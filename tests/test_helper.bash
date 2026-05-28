@@ -83,17 +83,3 @@ setup_archlinux() {
   fixture bootstrap "$FIXTURE_REPO/bootstrap"
   cp "$TEST_REPO/bootstrap/archlinux/00-config.sh" "$FIXTURE_REPO/bootstrap/archlinux/00-config.sh"
 }
-
-setup_gitbooty() {
-  setup_tmp gitbooty-test
-  export FIXTURE_REPO="$TEST_ROOT/repo"
-  export FIXTURE_TARGET="$TEST_ROOT/target"
-  export FIXTURE_STATE="$TEST_ROOT/state"
-  export GITBOOTY_REPO_ROOT="$FIXTURE_REPO"
-  export GITBOOTY_WRITEBACK_ROOT="$FIXTURE_REPO/layer1"
-  export GITBOOTY_TARGET_ROOT="$FIXTURE_TARGET"
-  export GITBOOTY_MANIFEST="$FIXTURE_STATE/home.manifest.tsv"
-  export GITBOOTY_LAYERS="$FIXTURE_REPO/layer1"
-  mkdir -p "$FIXTURE_REPO/layer1/.config" "$FIXTURE_REPO/layer2/.config"
-  mkdir -p "$FIXTURE_TARGET" "$FIXTURE_STATE"
-}

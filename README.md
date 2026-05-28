@@ -68,7 +68,7 @@ dotfiles/$BOOTY_OS/hosts/$host/rootfs/ ->  /
 The [secrets](#secrets) repository maintains this same layout and overlays sensitive files.
 
 > [!NOTE]
-> when running `booty` as root ( `BOOTSTRAP_USER=root`), `dotfiles/$BOOTY_OS/rootfs/home/root/` maps to `/root`; `dotfiles/$BOOTY_OS/rootfs/root/` remains system rootfs.
+> `root` is treated as system rootfs. Put root's files under `dotfiles/$BOOTY_OS/rootfs/root/`, not `dotfiles/$BOOTY_OS/rootfs/home/root/`.
 
 ### System Files
 

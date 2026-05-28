@@ -1,38 +1,766 @@
-#!/usr/bin/env bash
-set -eo pipefail
+#!/usr/bin/env python3
+import os
+import pwd
+import shlex
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
+from pathlib import Path
 
-. "$(dirname "$(readlink -f "$0")")/../lib/booty.sh"
-
-case "${1:-status}" in
-  -h|--help|help)
-    cat <<EOF
-usage: booty <command> [args]
+DEBUG = os.environ.get("DEBUG") == "1"
+USAGE = """usage: booty <command> [args]
 
 commands: pull apply status diff add rm mv commit sync gpg
 git commands: branch config remote log show fetch tag push
 
-Use 'booty-secrets <command>' to operate on the secrets checkout.
-EOF
-    ;;
-  sync)
-    booty_sync
-    ;;
-  gpg)
-    shift
-    booty_gpg "$@"
-    ;;
-  bootstrap)
-    die "use 'booty sync' for repo sync; use 'booty-bootstrap' for OS bootstrap"
-    ;;
-  *)
-    if [ -n "${BOOTY_SECRETS:-}" ]; then
-      repo="$booty_secrets_repo"
-      export BOOTY_MANIFEST_PREFIX=secrets
-      [ -d "$repo/.git" ] || die "missing secrets checkout: $repo; run 'booty sync'"
-    else
-      repo="$booty_repo"
-      [ -d "$repo/.git" ] || die "missing public checkout: $repo; run install or clone your repo there"
-    fi
-    booty_run "$repo" "${1:-status}" "${@:2}"
-    ;;
-esac
+Use 'booty-secrets <command>' to operate on the secrets checkout."""
+GPG_FILES = ("public.asc", "secret.asc", "ownertrust.txt")
+GPG_USAGE = "usage: booty gpg <export|import> [archive.tar.gz.age]"
+BOOTY_COMMANDS = {"pull", "apply", "status", "diff", "add", "rm", "mv", "commit", "sync", "gpg"}
+GIT_COMMANDS = {"branch", "config", "remote", "log", "show", "fetch", "tag", "push"}
+HELP_COMMANDS = {"help", "-h", "--help"}
+
+
+class BootyError(RuntimeError):
+    pass
+
+
+def log(message: str) -> None:
+    print(message, file=sys.stderr)
+
+
+def fail(message: str) -> None:
+    raise BootyError(message)
+
+
+def run(
+    args: Sequence[str],
+    *,
+    env: dict[str, str] | None = None,
+    capture: bool = False,
+    check: bool = True,
+    stderr=None,
+    cwd: Path | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    proc_env = (os.environ.copy() | env) if env else None
+    proc = subprocess.run(
+        list(args),
+        env=proc_env,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=stderr,
+        cwd=cwd,
+    )
+    if check and proc.returncode:
+        raise SystemExit(proc.returncode)
+    return proc
+
+
+def command_exists(name: str) -> bool:
+    return shutil.which(name) is not None
+
+
+def logical_path(value: os.PathLike[str] | str) -> Path:
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return Path(os.path.normpath(os.fspath(path)))
+
+
+def exists(path: Path) -> bool:
+    return path.exists() or path.is_symlink()
+
+
+def remove_leaf(path: Path) -> None:
+    if path.is_dir() and not path.is_symlink():
+        fail(f"path '{path}' is a directory")
+    path.unlink(missing_ok=True)
+
+
+def copy_leaf(src: Path, dst: Path) -> None:
+    if not exists(src):
+        fail(f"path '{src}' does not exist")
+    if src.is_dir() and not src.is_symlink():
+        fail(f"path '{src}' is a directory")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    remove_leaf(dst)
+    if src.is_symlink():
+        os.symlink(os.readlink(src), dst)
+    else:
+        shutil.copy2(src, dst, follow_symlinks=False)
+
+
+def parse_config(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for raw in path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        name, value = line.split("=", 1)
+        name = name.strip()
+        default = f"${{{name}:-"
+        if value.startswith(default) and value.endswith("}"):
+            value = value[len(default) : -1]
+        try:
+            values[name] = shlex.split(value)[0]
+        except (IndexError, ValueError):
+            values[name] = value
+    return values
+
+
+def user_home() -> Path:
+    sudo_user = os.environ.get("SUDO_USER")
+    if os.geteuid() == 0 and sudo_user:
+        try:
+            return Path(pwd.getpwnam(sudo_user).pw_dir)
+        except KeyError:
+            pass
+    return Path(os.environ.get("HOME", str(Path.home())))
+
+
+def detect_os() -> str:
+    os_release = Path("/etc/os-release")
+    if not os_release.is_file():
+        fail("cannot detect operating system")
+    data = parse_config(os_release)
+    os_id = data.get("ID", "")
+    if not os_id:
+        fail("cannot detect operating system")
+    return "archlinux" if os_id == "arch" else os_id
+
+
+def valid_rel(rel: str, root: Path) -> str:
+    if not rel or rel.startswith("/") or any(part in ("", ".", "..") for part in rel.split("/")):
+        fail(f"managed path '{rel}' is outside {root}")
+    return rel
+
+
+@dataclass(frozen=True)
+class Repo:
+    name: str
+    path: Path
+
+    @property
+    def checkout(self) -> bool:
+        return (self.path / ".git").is_dir()
+
+    def rel(self, path: Path) -> str:
+        return str(path.relative_to(self.path))
+
+    def git(self, *args: str, **kwargs) -> subprocess.CompletedProcess[bytes]:
+        return run(["git", "-C", str(self.path), *args], **kwargs)
+
+
+@dataclass(frozen=True)
+class Area:
+    name: str
+    target: Path
+    writeback: Path
+    sources: tuple[Path, ...]
+
+    @property
+    def live_system(self) -> bool:
+        return self.name == "system" and self.target == Path("/")
+
+    def path(self, rel: str) -> Path:
+        return self.target / valid_rel(rel, self.target)
+
+    def rel(self, path: os.PathLike[str] | str) -> str:
+        path = logical_path(path)
+        if self.target == Path("/"):
+            return path.as_posix().lstrip("/")
+        try:
+            rel = path.relative_to(self.target)
+        except ValueError:
+            fail(f"path '{path}' is outside {self.target}")
+        return "" if rel.as_posix() == "." else rel.as_posix()
+
+
+@dataclass(frozen=True)
+class SourceFile:
+    source: Path
+    repo: Repo
+
+
+@dataclass(frozen=True)
+class ManagedTarget:
+    area: Area
+    rel: str
+    path: Path
+
+    def source_for(self, repo: Repo) -> Path:
+        return repo.path / self.area.writeback / valid_rel(self.rel, self.area.target)
+
+
+@dataclass(frozen=True)
+class AppliedPaths:
+    root: Path
+
+    def path(self, area: Area) -> Path:
+        return self.root / f"{area.name}.paths"
+
+    def read(self, area: Area) -> set[str]:
+        path = self.path(area)
+        if not path.is_file():
+            return set()
+        return {valid_rel(line.strip(), area.target) for line in path.read_text().splitlines() if line.strip()}
+
+    def write(self, area: Area, rels: Iterable[str]) -> None:
+        path = self.path(area)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile("w", delete=False, dir=path.parent, prefix=f".{path.name}.") as tmp:
+                tmp_path = Path(tmp.name)
+                for rel in sorted({valid_rel(rel, area.target) for rel in rels}):
+                    tmp.write(f"{rel}\n")
+            os.replace(tmp_path, path)
+        except BaseException:
+            if tmp_path:
+                remove_leaf(tmp_path)
+            raise
+
+    def add(self, target: ManagedTarget) -> None:
+        paths = self.read(target.area)
+        paths.add(valid_rel(target.rel, target.area.target))
+        self.write(target.area, paths)
+
+    def discard(self, target: ManagedTarget) -> None:
+        paths = self.read(target.area)
+        paths.discard(valid_rel(target.rel, target.area.target))
+        self.write(target.area, paths)
+
+
+class App:
+    def __init__(self) -> None:
+        self.home = user_home()
+        self.booty_home = Path(os.environ.get("BOOTY_HOME") or self.home / ".booty")
+        for name, value in parse_config(self.booty_home / "config").items():
+            if not os.environ.get(name):
+                os.environ[name] = value
+        self.os_name = os.environ.get("BOOTY_OS") or detect_os()
+        self.host = os.environ.get("BOOTY_HOST") or os.uname().nodename
+        self.user = os.environ.get("BOOTY_USER") or os.environ.get("USER") or pwd.getpwuid(os.getuid()).pw_name
+        self.target_root = logical_path(os.environ.get("BOOTY_TARGET_ROOT") or "/")
+        self.gpg_home = Path(os.environ.get("GNUPGHOME") or self.home / ".gnupg")
+        self.gpg_env = {"GNUPGHOME": str(self.gpg_home)}
+        self.data_home = Path(os.environ.get("XDG_DATA_HOME") or self.home / ".local/share") / "booty"
+        self.tmp_root = self.booty_home / "tmp" / f"booty.{os.getpid()}"
+        self.public = Repo("public", self.booty_home / "booty")
+        self.secrets = Repo("secrets", self.booty_home / "booty-secrets")
+        self.selected = self.secrets if os.environ.get("BOOTY_SECRETS") else self.public
+        self.applied = AppliedPaths(self.data_home)
+        self.areas = tuple(self.build_areas())
+        os.environ["BOOTY_HOME"] = str(self.booty_home)
+
+    def cleanup(self) -> None:
+        if self.tmp_root.exists():
+            shutil.rmtree(self.tmp_root)
+
+    def tmpdir(self, prefix: str) -> tempfile.TemporaryDirectory[str]:
+        self.tmp_root.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.booty_home / "tmp", 0o700)
+        os.chmod(self.tmp_root, 0o700)
+        return tempfile.TemporaryDirectory(prefix=f"{prefix}.", dir=self.tmp_root)
+
+    def dotfiles(self, repo: Repo) -> Path:
+        return repo.path / "dotfiles" / self.os_name
+
+    def build_areas(self) -> list[Area]:
+        areas: list[Area] = []
+        dotfiles = Path("dotfiles") / self.os_name
+        rootfs = Path("rootfs")
+        hostfs = Path("hosts") / self.host / "rootfs"
+        if os.environ.get("BOOTY_SKIP_HOME") != "1" and self.user != "root":
+            areas.append(
+                Area(
+                    "home",
+                    self.home,
+                    dotfiles / rootfs / "home" / self.user,
+                    (
+                        rootfs / "home" / self.user,
+                        hostfs / "home" / self.user,
+                    ),
+                )
+            )
+        if os.environ.get("BOOTY_SKIP_ROOTFS") != "1":
+            areas.append(
+                Area(
+                    "system",
+                    self.target_root,
+                    dotfiles / hostfs,
+                    (rootfs, hostfs),
+                )
+            )
+        return areas
+
+    def managed_target(self, area: Area, rel: str) -> ManagedTarget:
+        return ManagedTarget(area, rel, area.path(rel))
+
+    def route(self, path: str) -> ManagedTarget:
+        absolute = logical_path(path)
+        home = next((area for area in self.areas if area.name == "home"), None)
+        if home and absolute.is_relative_to(home.target):
+            rel = home.rel(absolute)
+            if not rel:
+                fail("refusing to manage target root")
+            return ManagedTarget(home, rel, absolute)
+        if absolute.parts[:2] == ("/", "home"):
+            fail(f"refusing to manage another user's home: {absolute}")
+        system = next((area for area in self.areas if area.name == "system"), None)
+        if not system:
+            fail("system dotfiles are disabled")
+        rel = system.rel(absolute)
+        if not rel:
+            fail("refusing to manage target root")
+        return ManagedTarget(system, rel, absolute)
+
+    def active_repos(self) -> list[Repo]:
+        return [repo for repo in (self.public, self.secrets) if repo.checkout]
+
+    def needs_sudo(self, area: Area) -> bool:
+        return area.live_system and os.geteuid() != 0
+
+    def owner(self, area: Area | None = None) -> str:
+        return "0:0" if area and self.needs_sudo(area) else f"{os.getuid()}:{os.getgid()}"
+
+    def require_selected(self) -> Repo:
+        repo = self.selected
+        if not repo.checkout:
+            hint = "run 'booty sync'" if repo == self.secrets else "run install or clone your repo there"
+            fail(f"missing {repo.name} checkout: {repo.path}; {hint}")
+        return repo
+
+    def source_files(self, area: Area, repos: Sequence[Repo]) -> Iterable[tuple[str, Path, Repo]]:
+        for repo in repos:
+            root = self.dotfiles(repo)
+            for source_dir in area.sources:
+                layer = root / source_dir
+                if not layer.is_dir():
+                    continue
+                for path in layer.rglob("*"):
+                    if not (path.is_file() or path.is_symlink()):
+                        continue
+                    rel = valid_rel(path.relative_to(layer).as_posix(), area.target)
+                    if area.name == "system" and rel.startswith("home/"):
+                        continue
+                    yield rel, path, repo
+
+    def source_index(self, area: Area, repos: Sequence[Repo]) -> dict[str, SourceFile]:
+        return {rel: SourceFile(path, repo) for rel, path, repo in self.source_files(area, repos)}
+
+    def has_dotfiles(self, repo: Repo) -> bool:
+        return any(next(self.source_files(area, [repo]), None) for area in self.areas)
+
+    def require_dotfiles(self, repo: Repo) -> None:
+        if not self.has_dotfiles(repo):
+            fail(
+                f"{repo.name} checkout has no dotfiles for {self.os_name}/{self.host}/{self.user} "
+                f"in {self.dotfiles(repo)}; see README.md#dotfiles-repository-layout"
+            )
+
+    def render(self, area: Area, sources: dict[str, SourceFile], root: Path) -> None:
+        for rel, source in sources.items():
+            copy_leaf(source.source, root / rel)
+
+    def managed_areas(self, repos: Sequence[Repo]):
+        for area in self.areas:
+            sources = self.source_index(area, repos)
+            old = self.applied.read(area)
+            yield area, sources, old, set(sources)
+
+    def copy_tree(self, src: Path, dst: Path, *, as_root: bool = False) -> None:
+        target = "/" if dst == Path("/") else f"{dst}/"
+        cmd = ["rsync", "-rltD", "--executability", f"{src}/", target]
+        if as_root:
+            run(["sudo", "mkdir", "-p", str(dst)])
+            cmd.insert(1, "--chown=0:0")
+            cmd.insert(0, "sudo")
+        else:
+            dst.mkdir(parents=True, exist_ok=True)
+        run(cmd)
+
+    def apply_areas(self, repos: Sequence[Repo]) -> None:
+        for area, sources, old, desired_rels in self.managed_areas(repos):
+            if not sources and not old:
+                continue
+            with self.tmpdir(f"render-{area.name}") as tmp:
+                render_root = Path(tmp)
+                self.render(area, sources, render_root)
+                self.copy_tree(render_root, area.target, as_root=self.needs_sudo(area))
+            for rel in sorted(old - desired_rels):
+                self.remove_target(self.managed_target(area, rel))
+            self.applied.write(area, desired_rels)
+
+    def apply(self, _args: list[str]) -> int:
+        self.require_selected()
+        self.apply_areas(self.active_repos())
+        return 0
+
+    def pull(self, _args: list[str]) -> int:
+        repo = self.require_selected()
+        self.pull_repo(repo)
+        self.apply_areas(self.active_repos())
+        return 0
+
+    def file_changed(self, desired: Path, actual: Path) -> bool:
+        if not exists(actual):
+            return True
+        if desired.is_symlink() or actual.is_symlink():
+            return not (desired.is_symlink() and actual.is_symlink() and os.readlink(desired) == os.readlink(actual))
+        if desired.is_dir() or actual.is_dir():
+            return desired.is_dir() != actual.is_dir()
+        if (desired.stat().st_mode & 0o111) != (actual.stat().st_mode & 0o111):
+            return True
+        return desired.read_bytes() != actual.read_bytes()
+
+    def target_exists(self, target: ManagedTarget) -> bool:
+        area, path = target.area, target.path
+        if exists(path):
+            return True
+        if not self.needs_sudo(area):
+            return False
+        return any(run(["sudo", "test", flag, str(path)], check=False).returncode == 0 for flag in ("-e", "-L"))
+
+    def target_changed(self, target: ManagedTarget, desired: Path) -> bool:
+        area, actual = target.area, target.path
+        if not self.needs_sudo(area):
+            return self.file_changed(desired, actual)
+        if not self.target_exists(target):
+            return True
+        if exists(actual):
+            try:
+                return self.file_changed(desired, actual)
+            except PermissionError:
+                pass
+        if desired.is_symlink():
+            link = run(["sudo", "readlink", str(actual)], capture=True, check=False)
+            return link.returncode != 0 or link.stdout.decode().rstrip("\n") != os.readlink(desired)
+        if run(["sudo", "test", "-L", str(actual)], check=False).returncode == 0:
+            return True
+        mode = run(["sudo", "stat", "-c", "%a", str(actual)], capture=True).stdout.decode().strip()
+        if (int(mode, 8) & 0o111) != (desired.stat().st_mode & 0o111):
+            return True
+        return run(["sudo", "cmp", "-s", str(desired), str(actual)], check=False).returncode != 0
+
+    def status(self, _args: list[str]) -> int:
+        self.require_selected()
+        repos = self.active_repos()
+        rc = 0
+        for area, sources, old, desired_rels in self.managed_areas(repos):
+            for rel, source in sorted(sources.items()):
+                target = self.managed_target(area, rel)
+                if not self.target_exists(target):
+                    print(f"D\t{rel}")
+                    rc = 1
+                elif self.target_changed(target, source.source):
+                    print(f"M\t{rel}")
+                    rc = 1
+            for rel in sorted(old - desired_rels):
+                if self.target_exists(self.managed_target(area, rel)):
+                    print(f"A\t{rel}")
+                    rc = 1
+        self.selected.git("status", "--short")
+        return rc
+
+    def diff(self, _args: list[str]) -> int:
+        self.require_selected()
+        repos = self.active_repos()
+        for area, sources, old, desired_rels in self.managed_areas(repos):
+            rels = desired_rels | old
+            if not rels:
+                continue
+            with self.tmpdir(f"diff-{area.name}") as tmp:
+                tmp_root = Path(tmp)
+                desired = tmp_root / "booty"
+                actual = tmp_root / "target"
+                desired.mkdir()
+                actual.mkdir()
+                self.render(area, sources, desired)
+                for rel in rels:
+                    target = self.managed_target(area, rel)
+                    if self.target_exists(target):
+                        self.copy_from_target(target, actual / rel)
+                run(
+                    ["git", "diff", "--no-index", "--no-prefix", "booty", "target"],
+                    check=False,
+                    env={"GIT_CONFIG_GLOBAL": os.environ.get("GIT_CONFIG_GLOBAL", "/dev/null")},
+                    cwd=tmp_root,
+                )
+        return 0
+
+    def sudo_copy(self, src: Path, dst: Path, owner: str, sudo_parent: bool = False) -> None:
+        if sudo_parent:
+            run(["sudo", "mkdir", "-p", str(dst.parent)])
+        else:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            remove_leaf(dst)
+        run(["sudo", "rsync", "-a", f"--chown={owner}", "--", str(src), str(dst)])
+
+    def copy_from_target(self, target: ManagedTarget, dest: Path) -> None:
+        if self.needs_sudo(target.area):
+            self.sudo_copy(target.path, dest, self.owner())
+        else:
+            copy_leaf(target.path, dest)
+
+    def remove_target(self, target: ManagedTarget) -> None:
+        if self.needs_sudo(target.area):
+            run(["sudo", "rm", "-f", "--", str(target.path)])
+        else:
+            remove_leaf(target.path)
+
+    def add(self, args: list[str]) -> int:
+        if not args:
+            fail("usage: booty add <path>...")
+        repo = self.require_selected()
+        for path in args:
+            target = self.route(path)
+            if not self.target_exists(target):
+                fail(f"path '{target.path}' does not exist")
+            source = target.source_for(repo)
+            self.copy_from_target(target, source)
+            repo.git("add", "--", repo.rel(source))
+            self.applied.add(target)
+        return 0
+
+    def tracked_source(self, target: ManagedTarget, repo: Repo) -> SourceFile:
+        sources = self.source_index(target.area, self.active_repos())
+        entry = sources.get(target.rel)
+        if not entry or entry.repo != repo:
+            fail(f"path '{target.path}' is not tracked")
+        return entry
+
+    def rm(self, args: list[str]) -> int:
+        if not args:
+            fail("usage: booty rm <path>...")
+        repo = self.require_selected()
+        for path in args:
+            target = self.route(path)
+            entry = self.tracked_source(target, repo)
+            self.remove_target(target)
+            repo.git("rm", "-f", "--ignore-unmatch", "--", repo.rel(entry.source))
+            remove_leaf(entry.source)
+            self.applied.discard(target)
+        return 0
+
+    def move_target(self, src: ManagedTarget, dst: ManagedTarget) -> None:
+        if self.target_exists(dst):
+            fail(f"destination '{dst.path}' already exists")
+        if self.needs_sudo(src.area) or self.needs_sudo(dst.area):
+            self.sudo_copy(src.path, dst.path, self.owner(dst.area), sudo_parent=self.needs_sudo(dst.area))
+        else:
+            copy_leaf(src.path, dst.path)
+        self.remove_target(src)
+
+    def mv(self, args: list[str]) -> int:
+        if len(args) != 2:
+            fail("usage: booty mv <src> <dst>")
+        repo = self.require_selected()
+        src = self.route(args[0])
+        dst = self.route(args[1])
+        if not self.target_exists(src):
+            fail(f"path '{src.path}' does not exist")
+        entry = self.tracked_source(src, repo)
+        dest_source = dst.source_for(repo)
+        if exists(dest_source):
+            fail(f"destination source '{repo.rel(dest_source)}' already exists")
+        self.move_target(src, dst)
+        dest_source.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(entry.source), str(dest_source))
+        repo.git("rm", "-f", "--ignore-unmatch", "--", repo.rel(entry.source))
+        repo.git("add", "--", repo.rel(dest_source))
+        self.applied.discard(src)
+        self.applied.add(dst)
+        return 0
+
+    def commit(self, args: list[str]) -> int:
+        repo = self.require_selected()
+        repos = self.active_repos()
+        for area in self.areas:
+            for target_rel, entry in self.source_index(area, repos).items():
+                if entry.repo != repo:
+                    continue
+                target = self.managed_target(area, target_rel)
+                source_rel = repo.rel(entry.source)
+                if self.target_exists(target):
+                    self.copy_from_target(target, entry.source)
+                    repo.git("add", "--", source_rel)
+                else:
+                    repo.git("rm", "-f", "--ignore-unmatch", "--", source_rel)
+                    remove_leaf(entry.source)
+                    self.applied.discard(target)
+        return repo.git("commit", *args, check=False).returncode
+
+    def ensure_checkout(self, repo: Repo, url: str, required: bool) -> bool:
+        if repo.checkout:
+            if url:
+                log(f"updating {repo.name} checkout remote: {url}")
+                if repo.git("remote", "set-url", "origin", url, check=False).returncode:
+                    repo.git("remote", "add", "origin", url)
+            return True
+        if url:
+            log(f"cloning {repo.name} checkout: {url} -> {repo.path}")
+            repo.path.parent.mkdir(parents=True, exist_ok=True)
+            run(["git", "clone", url, str(repo.path)])
+            return True
+        if required:
+            fail(f"missing {repo.name} checkout: {repo.path}; set BOOTY_REPO_URL or run install")
+        return False
+
+    def pull_repo(self, repo: Repo) -> None:
+        remote = repo.git("remote", "get-url", "origin", capture=True, check=False, stderr=subprocess.DEVNULL)
+        if remote.returncode == 0:
+            repo.git("pull", "--ff-only")
+        elif DEBUG:
+            log(f"  [debug:booty] {repo.name} checkout has no origin remote")
+
+    def sync_secrets(self) -> list[Repo]:
+        secrets_url = os.environ.get("BOOTY_SECRETS_URL", "")
+        if not secrets_url:
+            if self.secrets.checkout:
+                return [self.secrets]
+            log("skipping secrets checkout: no BOOTY_SECRETS_URL")
+            return []
+        if not secrets_url.startswith("gcrypt::"):
+            fail("BOOTY_SECRETS_URL must use gcrypt::")
+        if not self.gpg_ready():
+            archive = self.booty_home / "gnupg.tar.gz.age"
+            if not archive.is_file():
+                log(
+                    f"skipping secrets checkout: copy GPG archive to {archive} "
+                    "or run 'booty gpg import <archive>'; then rerun 'booty sync'"
+                )
+                return []
+            self.gpg(["import", str(archive)])
+        if not command_exists("git-remote-gcrypt"):
+            fail("booty sync requires git-remote-gcrypt for secrets checkout")
+        return [self.secrets] if self.ensure_checkout(self.secrets, secrets_url, False) else []
+
+    def sync(self, _args: list[str]) -> int:
+        self.booty_home.mkdir(parents=True, exist_ok=True)
+        self.ensure_checkout(self.public, os.environ.get("BOOTY_REPO_URL", ""), True)
+        log(f"updating public checkout: {self.public.path}")
+        self.pull_repo(self.public)
+        self.require_dotfiles(self.public)
+
+        repos = [self.public, *self.sync_secrets()]
+        if self.secrets in repos:
+            log(f"updating secrets checkout: {self.secrets.path}")
+            self.pull_repo(self.secrets)
+
+        log(f"applying public checkout: {self.public.path}")
+        self.apply_areas(repos)
+        return 0
+
+    def gpg_ready(self) -> bool:
+        if not command_exists("gpg"):
+            return False
+        proc = run(["gpg", "--list-secret-keys", "--with-colons"], env=self.gpg_env, capture=True, check=False)
+        return proc.returncode == 0 and b"\nsec" in b"\n" + proc.stdout
+
+    def gpg(self, args: list[str]) -> int:
+        cmd = args[0] if args else "help"
+        archive = Path(args[1]) if len(args) > 1 else self.booty_home / "gnupg.tar.gz.age"
+        if len(args) > 2:
+            fail(GPG_USAGE)
+        if cmd in HELP_COMMANDS:
+            print(GPG_USAGE)
+            return 0
+        if not command_exists("age"):
+            fail("age is required")
+        with self.tmpdir("gpg-archive") as tmp:
+            tmp_root = Path(tmp)
+            if cmd == "export":
+                if not self.gpg_ready():
+                    fail(f"no GPG secret key found in {self.gpg_home}")
+                archive.parent.mkdir(parents=True, exist_ok=True)
+                exports = {
+                    "public.asc": ["gpg", "--armor", "--export"],
+                    "secret.asc": ["gpg", "--armor", "--export-secret-keys"],
+                    "ownertrust.txt": ["gpg", "--export-ownertrust"],
+                }
+                for name, gpg_args in exports.items():
+                    (tmp_root / name).write_bytes(run(gpg_args, env=self.gpg_env, capture=True).stdout)
+                tar_path = tmp_root / "gnupg.tar.gz"
+                with tarfile.open(tar_path, "w:gz") as tar:
+                    for name in GPG_FILES:
+                        tar.add(tmp_root / name, arcname=name)
+                age_args = ["age"]
+                if identity := os.environ.get("BOOTY_AGE_IDENTITY"):
+                    recipient = run(["age-keygen", "-y", identity], capture=True).stdout.decode().strip()
+                    age_args += ["-r", recipient]
+                else:
+                    age_args += ["-p"]
+                run([*age_args, "-o", str(archive), str(tar_path)])
+                return 0
+            if cmd == "import":
+                if not archive.is_file():
+                    fail(f"missing archive: {archive}")
+                tar_path = tmp_root / "gnupg.tar.gz"
+                age_args = ["age", "-d"]
+                if identity := os.environ.get("BOOTY_AGE_IDENTITY"):
+                    age_args += ["-i", identity]
+                run([*age_args, "-o", str(tar_path), str(archive)])
+                self.extract_gpg_archive(tar_path, tmp_root)
+                self.gpg_home.mkdir(parents=True, exist_ok=True)
+                os.chmod(self.gpg_home, 0o700)
+                run(["gpg", "--import", str(tmp_root / "public.asc")], env=self.gpg_env)
+                run(["gpg", "--import", str(tmp_root / "secret.asc")], env=self.gpg_env)
+                ownertrust = tmp_root / "ownertrust.txt"
+                if ownertrust.stat().st_size:
+                    run(["gpg", "--import-ownertrust", str(ownertrust)], env=self.gpg_env)
+                if not self.gpg_ready():
+                    fail("GPG import did not restore a secret key")
+                return 0
+        fail(GPG_USAGE)
+
+    def extract_gpg_archive(self, archive: Path, dest: Path) -> None:
+        with tarfile.open(archive) as tar:
+            members = {member.name: member for member in tar.getmembers()}
+            if set(members) != set(GPG_FILES) or any(not member.isfile() for member in members.values()):
+                fail("GPG archive has unexpected contents")
+            for name in GPG_FILES:
+                member = members[name]
+                src = tar.extractfile(member)
+                if src is None:
+                    fail("GPG archive has unexpected contents")
+                (dest / name).write_bytes(src.read())
+
+    def dispatch(self, argv: list[str]) -> int:
+        cmd = argv[0] if argv else "status"
+        args = argv[1:]
+        if cmd == "bootstrap":
+            fail("use 'booty sync' for repo sync; use 'booty-bootstrap' for OS bootstrap")
+        if cmd in BOOTY_COMMANDS:
+            return getattr(self, cmd)(args)
+        if cmd in GIT_COMMANDS:
+            return self.require_selected().git(cmd, *args, check=False).returncode
+        fail(f"unsupported command '{cmd}'")
+
+
+def main(argv: list[str]) -> int:
+    if argv and argv[0] in HELP_COMMANDS:
+        print(USAGE)
+        return 0
+    app = App()
+    try:
+        return app.dispatch(argv)
+    finally:
+        app.cleanup()
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except BootyError as err:
+        log(str(err))
+        if not DEBUG:
+            log("  (re-run with DEBUG=1 for a full trace)")
+        raise SystemExit(1) from None
