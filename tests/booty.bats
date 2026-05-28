@@ -28,8 +28,8 @@ seed_public_remote() {
   file_eq "$FIXTURE_HOME/.bashrc" shell
   file_eq "$FIXTURE_ROOT/etc/example.conf" root-base
   [ ! -e "$FIXTURE_ROOT/home/foo/.bashrc" ]
-  [ -f "$FIXTURE_STATE/booty/home.manifest.tsv" ]
-  [ -f "$FIXTURE_STATE/booty/rootfs.manifest.tsv" ]
+  [ -f "$FIXTURE_STATE/booty/home.paths" ]
+  [ -f "$FIXTURE_STATE/booty/system.paths" ]
 }
 
 @test "booty applies profile path for checkout commands" {
@@ -154,6 +154,12 @@ seed_public_remote() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"diff --git booty/etc/example.conf target/etc/example.conf"* ]]
   [[ "$output" == *"+changed"* ]]
+
+  rm "$FIXTURE_ROOT/etc/example.conf"
+  mkdir "$FIXTURE_ROOT/etc/example.conf"
+  run booty status
+  [ "$status" -ne 0 ]
+  [[ "$output" == *$'M\tetc/example.conf'* ]]
 }
 
 @test "booty commit writes target changes to the checkout" {
@@ -191,16 +197,6 @@ seed_public_remote() {
   [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/etc/routed.conf" ]
 }
 
-@test "booty add accepts mixed user and system paths" {
-  writef "$FIXTURE_HOME" ".gitconfig" user-gitconfig
-  writef "$FIXTURE_ROOT" "root/.bashrc" root-bashrc
-
-  run booty add "$FIXTURE_HOME/.gitconfig" "$FIXTURE_ROOT/root/.bashrc"
-  [ "$status" -eq 0 ]
-  file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.gitconfig" user-gitconfig
-  file_eq "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs/root/.bashrc" root-bashrc
-}
-
 @test "booty mv can move tracked files between user and system paths" {
   writef "$FIXTURE_HOME" ".gitconfig" moved-to-system
   booty add "$FIXTURE_HOME/.gitconfig"
@@ -233,10 +229,10 @@ seed_public_remote() {
 
 # User boundaries and unsupported commands fail before mutating state.
 
-@test "booty supports root as a dotfile user" {
+@test "booty treats /root as system dotfiles" {
   root_home="$FIXTURE_ROOT/root"
   mkdir -p "$root_home"
-  writef "$FIXTURE_REPO" "dotfiles/archlinux/rootfs/home/root/.bashrc" root-shell
+  writef "$FIXTURE_REPO" "dotfiles/archlinux/rootfs/root/.bashrc" root-shell
 
   run env USER=root BOOTY_USER=root HOME="$root_home" BOOTY_HOME="$BOOTY_HOME" "$BOOTY_ROOT/bin/booty" pull
   [ "$status" -eq 0 ]

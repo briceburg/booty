@@ -3,6 +3,7 @@ set -eo pipefail
 
 export BOOTY_CI="${BOOTY_CI:-lint bats}"
 export DEBUG="${DEBUG:-0}"
+export RUFF_CACHE_DIR="${RUFF_CACHE_DIR:-/tmp/booty-ruff-cache}"
 
 on_exit() {
   local status="$1"
@@ -16,10 +17,14 @@ on_exit() {
 [ "${BOOTY_CI_CONTAINER:-0}" = 1 ] || trap 'on_exit "$?"' EXIT
 
 test/lint() {
-  echo "==> running shellcheck on scripts" >&2
-  mapfile -t shell_files < <(
+  local file
+  local candidates=()
+  local python_files=()
+  local shell_files=()
+  echo "==> running linters" >&2
+  mapfile -t candidates < <(
     {
-      find bin lib -type f
+      find bin -type f
       find bootstrap -type f \( -name '*.sh' -o -perm -111 \)
       find dotfiles -type f -perm -111
       printf '%s\n' install tests/test_helper.bash
@@ -28,7 +33,17 @@ test/lint() {
       find tests/fixtures -type f \( -name '*.sh' -o -perm -111 \)
     } | sort -u
   )
+  for file in "${candidates[@]}"; do
+    case "$(head -n 1 "$file")" in
+      *bash*|*sh*) shell_files+=("$file") ;;
+      *python*) python_files+=("$file") ;;
+    esac
+  done
   shellcheck -x -s bash -P SCRIPTDIR "${shell_files[@]}"
+  if [ "${#python_files[@]}" -gt 0 ]; then
+    ruff check "${python_files[@]}"
+    ruff format --check "${python_files[@]}"
+  fi
 }
 
 test/bats() {

@@ -17,8 +17,8 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
   [ "$status" -eq 0 ]
   file_eq "$FIXTURE_HOME/.config/app.conf" secrets
   file_eq "$FIXTURE_ROOT/etc/secret.conf" secrets-root
-  [ -f "$FIXTURE_STATE/booty/secrets-home.manifest.tsv" ]
-  [ -f "$FIXTURE_STATE/booty/secrets-rootfs.manifest.tsv" ]
+  [ -f "$FIXTURE_STATE/booty/home.paths" ]
+  [ -f "$FIXTURE_STATE/booty/system.paths" ]
 }
 
 @test "booty-secrets add writes new files to the secrets checkout" {
@@ -54,17 +54,4 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
   run env BOOTY_HOME="$custom_home" "$BOOTY_ROOT/bin/booty-secrets" pull
   [ "$status" -eq 0 ]
   file_eq "$FIXTURE_HOME/.private" custom
-}
-
-# User selection follows the same contract as public dotfiles.
-
-@test "booty-secrets supports root as a dotfile user" {
-  fake gpg
-  root_home="$FIXTURE_ROOT/root"
-  mkdir -p "$root_home"
-  writef "$FIXTURE_SECRETS" "dotfiles/archlinux/rootfs/home/root/.private" root-secret
-
-  run env USER=root BOOTY_USER=root HOME="$root_home" BOOTY_HOME="$BOOTY_HOME" "$BOOTY_ROOT/bin/booty-secrets" pull
-  [ "$status" -eq 0 ]
-  file_eq "$root_home/.private" root-secret
 }

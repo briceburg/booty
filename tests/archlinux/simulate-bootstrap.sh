@@ -24,7 +24,7 @@ copy_tree() { mkdir -p "$2"; cp -r "$1"/. "$2"/; }
 build_sim_repo() {
   local repo="$1"
   mkdir -p "$repo"
-  cp -r /work/bin /work/lib /work/install "$repo/"
+  cp -r /work/bin /work/install "$repo/"
   copy_tree /work/bootstrap "$repo/bootstrap"
   copy_tree /work/tests/fixtures/bootstrap "$repo/bootstrap"
   copy_tree /work/tests/fixtures/dotfiles/archlinux "$repo/dotfiles/archlinux"
@@ -52,6 +52,9 @@ check "home dotfile owned by ci" owned_by /home/ci/.bashrc ci:ci
 check "user helper pulled executable" sudo -H -u ci test -x /home/ci/bin/create-secrets-remote
 check "system dotfile applied" test -f /etc/ci-test.conf
 check "system dotfile owned by root" owned_by /etc/ci-test.conf root:root
+chown ci:ci /etc/ci-test.conf
+check "booty apply restores system dotfile owner" ci_booty apply
+check "system dotfile owner restored" owned_by /etc/ci-test.conf root:root
 check "system helper pulled executable" /usr/local/bin/ci-system-probe
 check "system helper owned by root" owned_by /usr/local/bin/ci-system-probe root:root
 check "AUR checkout cloned as ci" test -f /home/ci/git/AUR/git-remote-gcrypt/PKGBUILD
@@ -68,8 +71,13 @@ echo "==> Live rootfs mutation" >&2
 
 live_src=/etc/booty-live-add.conf
 live_dst=/etc/booty-live-moved.conf
+live_home=/home/ci/.booty-live-home.conf
+home_src=/home/ci/.booty-home-rootfs.conf
+system_dst=/etc/booty-home-rootfs.conf
 repo_src=/home/ci/.booty/booty/dotfiles/archlinux/hosts/ci/rootfs/etc/booty-live-add.conf
 repo_dst=/home/ci/.booty/booty/dotfiles/archlinux/hosts/ci/rootfs/etc/booty-live-moved.conf
+repo_home=/home/ci/.booty/booty/dotfiles/archlinux/rootfs/home/ci/.booty-live-home.conf
+repo_system=/home/ci/.booty/booty/dotfiles/archlinux/hosts/ci/rootfs/etc/booty-home-rootfs.conf
 
 printf 'live-rootfs-test\n' > "$live_src"
 
@@ -86,6 +94,25 @@ check "rootfs mv moves host source" has_content "$repo_dst" live-rootfs-test
 check "booty rm removes live rootfs file" ci_booty rm "$live_dst"
 check "rootfs rm removes live target" test ! -e "$live_dst"
 check "rootfs rm removes host source" test ! -e "$repo_dst"
+
+printf 'live-rootfs-home-test\n' > "$live_src"
+
+check "booty add captures rootfs file for home move" ci_booty add "$live_src"
+check "booty mv moves live rootfs file into home" ci_booty mv "$live_src" "$live_home"
+check "rootfs to home mv sets live target owner" owned_by "$live_home" ci:ci
+check "rootfs to home mv moves source" has_content "$repo_home" live-rootfs-home-test
+check "booty rm removes moved home file" ci_booty rm "$live_home"
+check "home rm removes moved source" test ! -e "$repo_home"
+
+sudo -H -u ci sh -c "printf 'home-rootfs-test\n' > '$home_src'"
+
+check "booty add captures home file for rootfs move" ci_booty add "$home_src"
+check "booty mv moves home file into live rootfs" ci_booty mv "$home_src" "$system_dst"
+check "home to rootfs mv sets live target owner" owned_by "$system_dst" root:root
+check "home to rootfs mv moves source" has_content "$repo_system" home-rootfs-test
+check "booty rm removes moved system file" ci_booty rm "$system_dst"
+check "system rm removes moved source" test ! -e "$repo_system"
+
 check "booty status clean after live rootfs mutation" ci_booty status
 
 finish "live rootfs mutation assertions"

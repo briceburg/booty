@@ -1,5 +1,5 @@
 FROM alpine:3.22
 
-RUN apk add --no-cache age bash bats expect git gnupg rsync shellcheck yq
+RUN apk add --no-cache age bash bats expect git gnupg python3 rsync ruff shellcheck yq
 
 WORKDIR /work

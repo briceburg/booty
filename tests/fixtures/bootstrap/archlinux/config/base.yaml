@@ -12,6 +12,7 @@ features:
       - age
       - base-devel
       - gnupg
+      - python
       - python-docutils
       - rsync
       - sudo

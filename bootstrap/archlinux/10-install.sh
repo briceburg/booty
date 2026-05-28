@@ -46,7 +46,7 @@ id -u "$BOOTSTRAP_USER" &>/dev/null || {
   passwd -l "$BOOTSTRAP_USER" >/dev/null
 }
 
-user_home="$(passwd_home "$BOOTSTRAP_USER")"
+user_home="$(lookup_home "$BOOTSTRAP_USER")" || die "cannot find home directory for $BOOTSTRAP_USER"
 BOOTY_HOME="$user_home/.booty"
 export BOOTY_HOME
 
@@ -54,6 +54,7 @@ export BOOTY_HOME
 
 as_user "$BOOTSTRAP_USER" mkdir -p "$BOOTY_HOME" "$BOOTY_HOME/tmp" "$user_home/bin" "$user_home/git/AUR" "$user_home/tmp" "$user_home/.local/share/booty"
 {
+  printf "BOOTY_HOST=\${BOOTY_HOST:-%q}\n" "$BOOTY_HOST"
   printf "BOOTY_REPO_URL=\${BOOTY_REPO_URL:-%q}\n" "$BOOTY_REPO_URL"
   [ -z "$BOOTY_SECRETS_URL" ] || printf "BOOTY_SECRETS_URL=\${BOOTY_SECRETS_URL:-%q}\n" "$BOOTY_SECRETS_URL"
 } | as_user "$BOOTSTRAP_USER" tee "$BOOTY_HOME/config" >/dev/null
