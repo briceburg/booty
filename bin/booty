@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import fnmatch
+import glob
 import os
 import pwd
 import shlex
@@ -9,19 +11,44 @@ import tarfile
 import tempfile
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from itertools import chain, product
 from pathlib import Path
 
 DEBUG = os.environ.get("DEBUG") == "1"
-USAGE = """usage: booty <command> [args]
-
-commands: pull apply status diff add rm mv commit sync gpg
-git commands: branch config remote log show fetch tag push
-
-Use 'booty-secrets <command>' to operate on the secrets checkout."""
-GPG_FILES = ("public.asc", "secret.asc", "ownertrust.txt")
+COMMANDS = {
+    "sync": "clone/update configured repos and refresh live files",
+    "pull": "git pull the current repo and refresh live files",
+    "status": "show live-file and repo changes",
+    "diff": "show live-file diffs against repo",
+    "ls": "list managed live files",
+    "add": "copy live files into the repo and stage them",
+    "restore": "restore live files from the repo",
+    "rm": "remove live files and stage deletion",
+    "mv": "move live files and repo paths",
+    "commit": "commit live changes to the repo",
+    "gpg": "import/export secrets GPG archive",
+}
+GIT_COMMANDS = ("branch", "config", "remote", "log", "show", "fetch", "tag", "push")
+COMMAND_ALIASES = {"apply": "apply_dotfiles", "ls-files": "ls"}
+USAGE = "\n".join(
+    (
+        "usage: booty <command> [args]",
+        "",
+        "Commands:",
+        *(f"  {cmd:<8} {description}" for cmd, description in COMMANDS.items()),
+        "",
+        "Git passthrough:",
+        f"  {' '.join(GIT_COMMANDS)}",
+        "",
+        "Use 'booty-secrets <command>' to manage secret dotfiles.",
+    )
+)
+GPG_EXPORTS = {
+    "public.asc": ("gpg", "--armor", "--export"),
+    "secret.asc": ("gpg", "--armor", "--export-secret-keys"),
+    "ownertrust.txt": ("gpg", "--export-ownertrust"),
+}
 GPG_USAGE = "usage: booty gpg <export|import> [archive.tar.gz.age]"
-BOOTY_COMMANDS = {"pull", "apply", "status", "diff", "add", "rm", "mv", "commit", "sync", "gpg"}
-GIT_COMMANDS = {"branch", "config", "remote", "log", "show", "fetch", "tag", "push"}
 HELP_COMMANDS = {"help", "-h", "--help"}
 
 
@@ -53,6 +80,7 @@ def run(
         stdout=subprocess.PIPE if capture else None,
         stderr=stderr,
         cwd=cwd,
+        check=False,
     )
     if check and proc.returncode:
         raise SystemExit(proc.returncode)
@@ -61,6 +89,10 @@ def run(
 
 def command_exists(name: str) -> bool:
     return shutil.which(name) is not None
+
+
+def is_pattern(value: str) -> bool:
+    return any(char in value for char in "*?[")
 
 
 def logical_path(value: os.PathLike[str] | str) -> Path:
@@ -200,6 +232,12 @@ class ManagedTarget:
 
 
 @dataclass(frozen=True)
+class ManagedFile:
+    target: ManagedTarget
+    source: SourceFile | None
+
+
+@dataclass(frozen=True)
 class AppliedPaths:
     root: Path
 
@@ -229,12 +267,12 @@ class AppliedPaths:
 
     def add(self, target: ManagedTarget) -> None:
         paths = self.read(target.area)
-        paths.add(valid_rel(target.rel, target.area.target))
+        paths.add(target.rel)
         self.write(target.area, paths)
 
     def discard(self, target: ManagedTarget) -> None:
         paths = self.read(target.area)
-        paths.discard(valid_rel(target.rel, target.area.target))
+        paths.discard(target.rel)
         self.write(target.area, paths)
 
 
@@ -261,8 +299,7 @@ class App:
         os.environ["BOOTY_HOME"] = str(self.booty_home)
 
     def cleanup(self) -> None:
-        if self.tmp_root.exists():
-            shutil.rmtree(self.tmp_root)
+        shutil.rmtree(self.tmp_root, ignore_errors=True)
 
     def tmpdir(self, prefix: str) -> tempfile.TemporaryDirectory[str]:
         self.tmp_root.mkdir(parents=True, exist_ok=True)
@@ -339,25 +376,23 @@ class App:
         return repo
 
     def source_files(self, area: Area, repos: Sequence[Repo]) -> Iterable[tuple[str, Path, Repo]]:
-        for repo in repos:
-            root = self.dotfiles(repo)
-            for source_dir in area.sources:
-                layer = root / source_dir
-                if not layer.is_dir():
+        for repo, source_dir in product(repos, area.sources):
+            layer = self.dotfiles(repo) / source_dir
+            if not layer.is_dir():
+                continue
+            for path in layer.rglob("*"):
+                if not (path.is_file() or path.is_symlink()):
                     continue
-                for path in layer.rglob("*"):
-                    if not (path.is_file() or path.is_symlink()):
-                        continue
-                    rel = valid_rel(path.relative_to(layer).as_posix(), area.target)
-                    if area.name == "system" and rel.startswith("home/"):
-                        continue
-                    yield rel, path, repo
+                rel = valid_rel(path.relative_to(layer).as_posix(), area.target)
+                if area.name == "system" and rel.startswith("home/"):
+                    continue
+                yield rel, path, repo
 
     def source_index(self, area: Area, repos: Sequence[Repo]) -> dict[str, SourceFile]:
         return {rel: SourceFile(path, repo) for rel, path, repo in self.source_files(area, repos)}
 
     def has_dotfiles(self, repo: Repo) -> bool:
-        return any(next(self.source_files(area, [repo]), None) for area in self.areas)
+        return next(chain.from_iterable(self.source_files(area, [repo]) for area in self.areas), None) is not None
 
     def require_dotfiles(self, repo: Repo) -> None:
         if not self.has_dotfiles(repo):
@@ -366,7 +401,7 @@ class App:
                 f"in {self.dotfiles(repo)}; see README.md#dotfiles-repository-layout"
             )
 
-    def render(self, area: Area, sources: dict[str, SourceFile], root: Path) -> None:
+    def render(self, sources: dict[str, SourceFile], root: Path) -> None:
         for rel, source in sources.items():
             copy_leaf(source.source, root / rel)
 
@@ -375,6 +410,91 @@ class App:
             sources = self.source_index(area, repos)
             old = self.applied.read(area)
             yield area, sources, old, set(sources)
+
+    def managed_files(self, repos: Sequence[Repo]) -> Iterable[ManagedFile]:
+        for area, sources, old, desired_rels in self.managed_areas(repos):
+            for rel in sorted(desired_rels | old):
+                yield ManagedFile(self.managed_target(area, rel), sources.get(rel))
+
+    def select_managed(self, args: list[str], repos: Sequence[Repo], *, required: bool = True) -> list[ManagedFile]:
+        files = list(self.managed_files(repos))
+        if not args:
+            return files
+        selected: dict[tuple[str, str], ManagedFile] = {}
+        for spec in args:
+            path = logical_path(spec)
+            pattern = is_pattern(spec)
+            if pattern:
+                matches = [file for file in files if fnmatch.fnmatchcase(str(file.target.path), str(path))]
+            else:
+                matches = [file for file in files if file.target.path.is_relative_to(path)]
+            if not matches:
+                if required:
+                    fail(f"pathspec '{spec}' did not match any managed files")
+                continue
+            for file in matches:
+                selected.setdefault((file.target.area.name, file.target.rel), file)
+        return list(selected.values())
+
+    def group_by_area(self, files: Iterable[ManagedFile]) -> Iterable[tuple[Area, list[ManagedFile]]]:
+        groups: dict[Area, list[ManagedFile]] = {}
+        for file in files:
+            groups.setdefault(file.target.area, []).append(file)
+        return groups.items()
+
+    def target_is_dir(self, target: ManagedTarget) -> bool:
+        if target.path.is_symlink():
+            return False
+        return target.path.is_dir() or (
+            self.needs_sudo(target.area)
+            and run(["sudo", "test", "-L", str(target.path)], check=False).returncode != 0
+            and run(["sudo", "test", "-d", str(target.path)], check=False).returncode == 0
+        )
+
+    def target_leaves(self, target: ManagedTarget) -> Iterable[ManagedTarget]:
+        if not self.target_is_dir(target):
+            yield target
+            return
+        if self.needs_sudo(target.area) and not os.access(target.path, os.R_OK | os.X_OK):
+            find = run(
+                [
+                    "sudo",
+                    "find",
+                    str(target.path),
+                    "-mindepth",
+                    "1",
+                    "(",
+                    "-type",
+                    "f",
+                    "-o",
+                    "-type",
+                    "l",
+                    ")",
+                    "-print0",
+                ],
+                capture=True,
+            )
+            paths = sorted(Path(os.fsdecode(raw)) for raw in find.stdout.split(b"\0") if raw)
+        else:
+            paths = sorted(path for path in target.path.rglob("*") if path.is_file() or path.is_symlink())
+        for path in paths:
+            yield self.managed_target(target.area, target.area.rel(path))
+
+    def select_live(self, args: list[str]) -> list[ManagedTarget]:
+        selected: dict[tuple[str, str], ManagedTarget] = {}
+        for spec in args:
+            paths = (
+                map(Path, glob.iglob(str(logical_path(spec)), recursive=True))
+                if is_pattern(spec)
+                else (logical_path(spec),)
+            )
+            for path in paths:
+                target = self.route(str(path))
+                if not self.target_exists(target):
+                    continue
+                for leaf in self.target_leaves(target):
+                    selected.setdefault((leaf.area.name, leaf.rel), leaf)
+        return list(selected.values())
 
     def copy_tree(self, src: Path, dst: Path, *, as_root: bool = False) -> None:
         target = "/" if dst == Path("/") else f"{dst}/"
@@ -393,13 +513,15 @@ class App:
                 continue
             with self.tmpdir(f"render-{area.name}") as tmp:
                 render_root = Path(tmp)
-                self.render(area, sources, render_root)
+                self.render(sources, render_root)
                 self.copy_tree(render_root, area.target, as_root=self.needs_sudo(area))
             for rel in sorted(old - desired_rels):
                 self.remove_target(self.managed_target(area, rel))
             self.applied.write(area, desired_rels)
 
-    def apply(self, _args: list[str]) -> int:
+    def apply_dotfiles(self, args: list[str]) -> int:
+        if args:
+            fail("usage: booty apply")
         self.require_selected()
         self.apply_areas(self.active_repos())
         return 0
@@ -422,12 +544,11 @@ class App:
         return desired.read_bytes() != actual.read_bytes()
 
     def target_exists(self, target: ManagedTarget) -> bool:
-        area, path = target.area, target.path
-        if exists(path):
+        if exists(target.path):
             return True
-        if not self.needs_sudo(area):
-            return False
-        return any(run(["sudo", "test", flag, str(path)], check=False).returncode == 0 for flag in ("-e", "-L"))
+        return self.needs_sudo(target.area) and any(
+            run(["sudo", "test", flag, str(target.path)], check=False).returncode == 0 for flag in ("-e", "-L")
+        )
 
     def target_changed(self, target: ManagedTarget, desired: Path) -> bool:
         area, actual = target.area, target.path
@@ -450,40 +571,66 @@ class App:
             return True
         return run(["sudo", "cmp", "-s", str(desired), str(actual)], check=False).returncode != 0
 
-    def status(self, _args: list[str]) -> int:
-        self.require_selected()
+    def status(self, args: list[str]) -> int:
+        repo = self.require_selected()
         repos = self.active_repos()
-        rc = 0
-        for area, sources, old, desired_rels in self.managed_areas(repos):
-            for rel, source in sorted(sources.items()):
-                target = self.managed_target(area, rel)
+        live_changes = []
+        files = self.select_managed(args, repos)
+        for file in files:
+            target, source = file.target, file.source
+            if source:
                 if not self.target_exists(target):
-                    print(f"D\t{rel}")
-                    rc = 1
+                    live_changes.append(("deleted:", target.rel))
                 elif self.target_changed(target, source.source):
-                    print(f"M\t{rel}")
-                    rc = 1
-            for rel in sorted(old - desired_rels):
-                if self.target_exists(self.managed_target(area, rel)):
-                    print(f"A\t{rel}")
-                    rc = 1
-        self.selected.git("status", "--short")
-        return rc
+                    live_changes.append(("modified:", target.rel))
+            elif self.target_exists(target):
+                live_changes.append(("added:", target.rel))
+        if args:
+            paths = [repo.rel(file.source.source) for file in files if file.source and file.source.repo == repo]
+            checkout_changes = (
+                repo.git("status", "--short", "--", *paths, capture=True).stdout.decode().splitlines() if paths else []
+            )
+        else:
+            checkout_changes = repo.git("status", "--short", capture=True).stdout.decode().splitlines()
+        branch = repo.git("branch", "--show-current", capture=True, stderr=subprocess.DEVNULL).stdout.decode().strip()
+        if branch:
+            print(f"On branch {branch}\n")
+        if live_changes:
+            print("Live file changes:")
+            print('  (use "booty add <file>..." or "booty rm <file>..." to update what will be committed)')
+            print('  (use "booty restore <file>..." to discard changes in live files)\n')
+            for label, rel in live_changes:
+                print(f"\t{label:<12}{rel}")
+            print()
+        if checkout_changes:
+            print("Repo changes:")
+            for line in checkout_changes:
+                print(f"\t{line}")
+            print()
+        if not live_changes and not checkout_changes:
+            print("nothing to commit, managed files clean")
+        return 1 if live_changes else 0
 
-    def diff(self, _args: list[str]) -> int:
+    def ls(self, args: list[str]) -> int:
+        self.require_selected()
+        for file in self.select_managed(args, self.active_repos()):
+            if file.source:
+                print(file.target.path)
+        return 0
+
+    def diff(self, args: list[str]) -> int:
         self.require_selected()
         repos = self.active_repos()
-        for area, sources, old, desired_rels in self.managed_areas(repos):
-            rels = desired_rels | old
-            if not rels:
-                continue
+        for area, files in self.group_by_area(self.select_managed(args, repos)):
+            rels = {file.target.rel for file in files}
+            sources = {file.target.rel: file.source for file in files if file.source}
             with self.tmpdir(f"diff-{area.name}") as tmp:
                 tmp_root = Path(tmp)
                 desired = tmp_root / "booty"
                 actual = tmp_root / "target"
                 desired.mkdir()
                 actual.mkdir()
-                self.render(area, sources, desired)
+                self.render(sources, desired)
                 for rel in rels:
                     target = self.managed_target(area, rel)
                     if self.target_exists(target):
@@ -499,10 +646,17 @@ class App:
     def sudo_copy(self, src: Path, dst: Path, owner: str, sudo_parent: bool = False) -> None:
         if sudo_parent:
             run(["sudo", "mkdir", "-p", str(dst.parent)])
+            run(["sudo", "rm", "-f", "--", str(dst)])
         else:
             dst.parent.mkdir(parents=True, exist_ok=True)
             remove_leaf(dst)
         run(["sudo", "rsync", "-a", f"--chown={owner}", "--", str(src), str(dst)])
+
+    def copy_to_target(self, src: Path, target: ManagedTarget) -> None:
+        if self.needs_sudo(target.area):
+            self.sudo_copy(src, target.path, self.owner(target.area), sudo_parent=True)
+        else:
+            copy_leaf(src, target.path)
 
     def copy_from_target(self, target: ManagedTarget, dest: Path) -> None:
         if self.needs_sudo(target.area):
@@ -518,16 +672,39 @@ class App:
 
     def add(self, args: list[str]) -> int:
         if not args:
-            fail("usage: booty add <path>...")
+            fail("usage: booty add <pathspec>...")
         repo = self.require_selected()
-        for path in args:
-            target = self.route(path)
-            if not self.target_exists(target):
-                fail(f"path '{target.path}' does not exist")
+        targets = self.select_live(args)
+        deleted = [
+            file
+            for file in self.select_managed(args, self.active_repos(), required=False)
+            if file.source and file.source.repo == repo and not self.target_exists(file.target)
+        ]
+        if not targets and not deleted:
+            fail("pathspec did not match any files")
+        for target in targets:
             source = target.source_for(repo)
             self.copy_from_target(target, source)
             repo.git("add", "--", repo.rel(source))
             self.applied.add(target)
+        for file in deleted:
+            source = file.source.source
+            repo.git("rm", "-f", "--ignore-unmatch", "--", repo.rel(source))
+            remove_leaf(source)
+            self.applied.discard(file.target)
+        return 0
+
+    def restore(self, args: list[str]) -> int:
+        if not args:
+            fail("usage: booty restore <pathspec>...")
+        self.require_selected()
+        for file in self.select_managed(args, self.active_repos()):
+            if file.source:
+                self.copy_to_target(file.source.source, file.target)
+                self.applied.add(file.target)
+            else:
+                self.remove_target(file.target)
+                self.applied.discard(file.target)
         return 0
 
     def tracked_source(self, target: ManagedTarget, repo: Repo) -> SourceFile:
@@ -539,11 +716,14 @@ class App:
 
     def rm(self, args: list[str]) -> int:
         if not args:
-            fail("usage: booty rm <path>...")
+            fail("usage: booty rm <pathspec>...")
         repo = self.require_selected()
-        for path in args:
-            target = self.route(path)
-            entry = self.tracked_source(target, repo)
+        files = self.select_managed(args, self.active_repos())
+        for file in files:
+            if not file.source or file.source.repo != repo:
+                fail(f"path '{file.target.path}' is not tracked")
+        for file in files:
+            target, entry = file.target, file.source
             self.remove_target(target)
             repo.git("rm", "-f", "--ignore-unmatch", "--", repo.rel(entry.source))
             remove_leaf(entry.source)
@@ -681,16 +861,11 @@ class App:
                 if not self.gpg_ready():
                     fail(f"no GPG secret key found in {self.gpg_home}")
                 archive.parent.mkdir(parents=True, exist_ok=True)
-                exports = {
-                    "public.asc": ["gpg", "--armor", "--export"],
-                    "secret.asc": ["gpg", "--armor", "--export-secret-keys"],
-                    "ownertrust.txt": ["gpg", "--export-ownertrust"],
-                }
-                for name, gpg_args in exports.items():
+                for name, gpg_args in GPG_EXPORTS.items():
                     (tmp_root / name).write_bytes(run(gpg_args, env=self.gpg_env, capture=True).stdout)
                 tar_path = tmp_root / "gnupg.tar.gz"
                 with tarfile.open(tar_path, "w:gz") as tar:
-                    for name in GPG_FILES:
+                    for name in GPG_EXPORTS:
                         tar.add(tmp_root / name, arcname=name)
                 age_args = ["age"]
                 if identity := os.environ.get("BOOTY_AGE_IDENTITY"):
@@ -724,9 +899,9 @@ class App:
     def extract_gpg_archive(self, archive: Path, dest: Path) -> None:
         with tarfile.open(archive) as tar:
             members = {member.name: member for member in tar.getmembers()}
-            if set(members) != set(GPG_FILES) or any(not member.isfile() for member in members.values()):
+            if members.keys() != GPG_EXPORTS.keys() or any(not member.isfile() for member in members.values()):
                 fail("GPG archive has unexpected contents")
-            for name in GPG_FILES:
+            for name in GPG_EXPORTS:
                 member = members[name]
                 src = tar.extractfile(member)
                 if src is None:
@@ -734,19 +909,19 @@ class App:
                 (dest / name).write_bytes(src.read())
 
     def dispatch(self, argv: list[str]) -> int:
-        cmd = argv[0] if argv else "status"
+        cmd = argv[0]
         args = argv[1:]
         if cmd == "bootstrap":
             fail("use 'booty sync' for repo sync; use 'booty-bootstrap' for OS bootstrap")
-        if cmd in BOOTY_COMMANDS:
-            return getattr(self, cmd)(args)
+        if cmd in COMMANDS or cmd in COMMAND_ALIASES:
+            return getattr(self, COMMAND_ALIASES.get(cmd, cmd).replace("-", "_"))(args)
         if cmd in GIT_COMMANDS:
             return self.require_selected().git(cmd, *args, check=False).returncode
         fail(f"unsupported command '{cmd}'")
 
 
 def main(argv: list[str]) -> int:
-    if argv and argv[0] in HELP_COMMANDS:
+    if not argv or argv[0] in HELP_COMMANDS:
         print(USAGE)
         return 0
     app = App()
@@ -764,3 +939,6 @@ if __name__ == "__main__":
         if not DEBUG:
             log("  (re-run with DEBUG=1 for a full trace)")
         raise SystemExit(1) from None
+    except KeyboardInterrupt:
+        log("interrupted")
+        raise SystemExit(130) from None

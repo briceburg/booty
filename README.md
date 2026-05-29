@@ -1,8 +1,6 @@
 # booty :pirate_flag: :gift:
 
-`booty` tracks home and system dotfiles in git⁰, then applies them to a host.
-
-> ⁰ [git](https://git-scm.com/docs/user-manual) - "the stupid content tracker"
+`booty` tracks home and system dotfiles in git⁰, then writes them to a host.
 
 ## Install
 
@@ -25,7 +23,7 @@ booty sync
 
 * clones the [dotfiles repo](#dotfiles-repository-layout) (`BOOTY_REPO_URL`) to `~/.booty/booty` or updates it.
   * if `BOOTY_SECRETS_URL` is set, it also syncs `~/.booty/booty-secrets`.
-* updates and applies dotfiles
+* refreshes live files from the repo
   * adds this repo's [/etc/profile.d/booty.sh](./dotfiles/archlinux/rootfs/etc/profile.d/booty.sh), which adds booty commands to PATH for new login shells.
 
 `booty sync` runs during [booty-bootstrap](#bootstrap). Re-run whenever dotfile or secrets URLs change.
@@ -36,9 +34,11 @@ booty sync
 
 ```sh
 booty status
-booty diff
+booty ls ~/.config
+booty diff ~/.config
 booty pull
-booty add ~/.bashrc
+booty add ~/.bashrc ~/.config
+booty restore ~/.bashrc
 booty add /etc/keyd/default.conf
 booty rm ~/.bashrc
 booty mv ~/.bashrc /etc/skel/.bashrc
@@ -48,11 +48,13 @@ booty push
 
 Run `booty` as the user whose dotfiles you want to manage, usually your user. Syncing [system files](#system-files) may prompt for sudo.
 
+Commands that take paths use git-style pathspecs. `add` reads live files and recurses through named directories; `status`, `diff`, `restore`, `rm`, and `ls` operate on already-managed files. Quote globs you want `booty` to expand, for example `booty add '~/.config/*.toml'`.
+
 In addition to the git interface, the [sync](#sync) and [gpg](#gpg) commands are available.
 
 ## Dotfiles Repository Layout
 
-[Dotfiles](./dotfiles/) map directly to target paths:
+[Dotfiles](./dotfiles/) map directly to live paths:
 
 ```text
 dotfiles/$BOOTY_OS/rootfs/home/$USER/  ->  ~/
@@ -179,3 +181,7 @@ Run the Arch bootstrap simulation:
 ```sh
 BOOTY_CI=archlinux ./bin/ci
 ```
+
+---
+
+> ⁰ [git](https://git-scm.com/docs/user-manual) - "the stupid content tracker"
