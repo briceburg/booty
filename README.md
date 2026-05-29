@@ -5,15 +5,17 @@
 ## Install
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/briceburg/booty/main/install | bash
+curl -fsSL https://booty.iceburg.net/install | bash
 ```
 
 :zap: For unattended installs, or to use a fork, set the target user and repo explicitly:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/briceburg/booty/main/install |
+curl -fsSL https://booty.iceburg.net/install |
   BOOTSTRAP_USER=nesta BOOTY_REPO_URL=https://github.com/yourname/booty.git bash
 ```
+
+> `https://booty.iceburg.net/install` redirects to this repo's [install](./install) file.
 
 ## Sync
 

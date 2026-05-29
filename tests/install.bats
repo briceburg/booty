@@ -36,3 +36,22 @@ setup_install_remote() {
   [ "$status" -eq 0 ]
   [ "$(cat "$TEST_ROOT/marker")" = new ]
 }
+
+@test "install from piped stdin runs bootstrap after opening tty" {
+  command -v expect >/dev/null || skip "expect is required"
+  setup_install_remote 'echo piped > "$INSTALL_MARKER"'
+  git_commit_all "$remote" seed
+
+  run env HOME="$home" BOOTY_REPO_URL="file://$remote" INSTALL_MARKER="$TEST_ROOT/marker" INSTALL_SCRIPT="$TEST_REPO/install" expect -c '
+    set timeout 10
+    spawn sh -c {cat "$INSTALL_SCRIPT" | bash}
+    expect {
+      eof {}
+      timeout { exit 124 }
+    }
+    catch wait result
+    exit [lindex $result 3]
+  '
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TEST_ROOT/marker")" = piped ]
+}

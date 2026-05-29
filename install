@@ -15,9 +15,13 @@ else
   git clone "$repo_url" "$booty_repo_root"
 fi
 
-if [ ! -t 0 ] && { exec 3</dev/tty; } 2>/dev/null; then
-  exec <&3
-  exec 3<&-
-fi
+run_bootstrap(){
+  BOOTY_HOME="$booty_root" "$booty_repo_root/bin/booty-bootstrap"
+}
 
-BOOTY_HOME="$booty_root" "$booty_repo_root/bin/booty-bootstrap"
+if [ ! -t 0 ] && { exec 3</dev/tty; } 2>/dev/null; then
+  run_bootstrap <&3
+  exec 3<&-
+else
+  run_bootstrap
+fi
