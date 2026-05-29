@@ -30,6 +30,15 @@ seed_public_remote() {
   [ ! -e "$FIXTURE_ROOT/home/foo/.bashrc" ]
   [ -f "$FIXTURE_STATE/booty/home.paths" ]
   [ -f "$FIXTURE_STATE/booty/system.paths" ]
+
+  run booty ls
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"$FIXTURE_HOME/.bashrc"* ]]
+  [[ "$output" == *"$FIXTURE_ROOT/etc/example.conf"* ]]
+
+  run booty ls-files "$FIXTURE_HOME/.bashrc"
+  [ "$status" -eq 0 ]
+  [ "$output" = "$FIXTURE_HOME/.bashrc" ]
 }
 
 @test "booty applies profile path for checkout commands" {
@@ -45,15 +54,29 @@ seed_public_remote() {
   [ "$output" = "$FIXTURE_REPO/bin:/bin:/usr/bin" ]
 }
 
-@test "booty pull prunes files removed from rootfs sources" {
+@test "booty restore restores selected managed pathspecs" {
   booty pull >/dev/null
-  [ -f "$FIXTURE_ROOT/etc/example.conf" ]
+  writef "$FIXTURE_HOME" ".bashrc" changed-home
+  writef "$FIXTURE_ROOT" "etc/example.conf" changed-root
+
+  run booty restore "$FIXTURE_ROOT/etc/*.conf"
+  [ "$status" -eq 0 ]
+  file_eq "$FIXTURE_ROOT/etc/example.conf" root-base
+  file_eq "$FIXTURE_HOME/.bashrc" changed-home
+
+  run booty restore "$FIXTURE_HOME/.bashrc"
+  [ "$status" -eq 0 ]
+  file_eq "$FIXTURE_HOME/.bashrc" shell
 
   rm -rf "$FIXTURE_REPO/dotfiles/archlinux/rootfs" "$FIXTURE_REPO/dotfiles/archlinux/hosts/hartford/rootfs"
 
-  run booty pull
+  run booty restore "$FIXTURE_ROOT/etc/example.conf"
   [ "$status" -eq 0 ]
   [ ! -e "$FIXTURE_ROOT/etc/example.conf" ]
+  [ -e "$FIXTURE_HOME/.bashrc" ]
+
+  run booty restore "$FIXTURE_HOME/.bashrc"
+  [ "$status" -eq 0 ]
   [ ! -e "$FIXTURE_HOME/.bashrc" ]
 }
 
@@ -144,22 +167,26 @@ seed_public_remote() {
 
 @test "booty status reports system drift by default" {
   booty pull >/dev/null
+  writef "$FIXTURE_HOME" ".bashrc" changed-home
   writef "$FIXTURE_ROOT" "etc/example.conf" changed
 
-  run booty status
+  run booty status "$FIXTURE_ROOT/etc"
   [ "$status" -ne 0 ]
-  [[ "$output" == *$'M\tetc/example.conf'* ]]
+  [[ "$output" == *"Live file changes:"* ]]
+  [[ "$output" == *"modified:   etc/example.conf"* ]]
+  [[ "$output" != *".bashrc"* ]]
 
-  run booty diff
+  run booty diff "$FIXTURE_ROOT/etc"
   [ "$status" -eq 0 ]
   [[ "$output" == *"diff --git booty/etc/example.conf target/etc/example.conf"* ]]
   [[ "$output" == *"+changed"* ]]
+  [[ "$output" != *"changed-home"* ]]
 
   rm "$FIXTURE_ROOT/etc/example.conf"
   mkdir "$FIXTURE_ROOT/etc/example.conf"
   run booty status
   [ "$status" -ne 0 ]
-  [[ "$output" == *$'M\tetc/example.conf'* ]]
+  [[ "$output" == *"modified:   etc/example.conf"* ]]
 }
 
 @test "booty commit writes target changes to the checkout" {
@@ -177,15 +204,35 @@ seed_public_remote() {
 
 # Path routing decides which dotfiles tree receives each source path.
 
-@test "booty add routes relative and absolute home paths to dotfiles home" {
+@test "booty add routes relative, absolute, directory, and globbed home paths" {
   writef "$FIXTURE_HOME" "relative.conf" relative
   writef "$FIXTURE_HOME" "absolute.conf" absolute
+  writef "$FIXTURE_HOME" ".config/new/one.conf" one
+  writef "$FIXTURE_HOME" ".config/new/two.txt" two
+  writef "$FIXTURE_HOME" ".config/glob/three.conf" three
+  writef "$FIXTURE_HOME" ".config/glob/ignored.txt" ignored
 
   ( cd "$FIXTURE_HOME" && booty add relative.conf )
-  run booty add "$FIXTURE_HOME/absolute.conf"
+  run booty add "$FIXTURE_HOME/absolute.conf" "$FIXTURE_HOME/.config/new" "$FIXTURE_HOME/.config/glob/*.conf"
   [ "$status" -eq 0 ]
   file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/relative.conf" relative
   file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/absolute.conf" absolute
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.config/new/one.conf" one
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.config/new/two.txt" two
+  file_eq "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.config/glob/three.conf" three
+  [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.config/glob/ignored.txt" ]
+
+  rm -r "$FIXTURE_HOME/.config/new"
+  run booty add "$FIXTURE_HOME/.config/new"
+  [ "$status" -eq 0 ]
+  [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.config/new/one.conf" ]
+  [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.config/new/two.txt" ]
+
+  run booty rm "$FIXTURE_HOME/.config/glob"
+  [ "$status" -eq 0 ]
+  [ ! -e "$FIXTURE_HOME/.config/glob/three.conf" ]
+  [ -e "$FIXTURE_HOME/.config/glob/ignored.txt" ]
+  [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.config/glob/three.conf" ]
 }
 
 @test "booty add routes absolute system paths to host system dotfiles" {

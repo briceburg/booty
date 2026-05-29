@@ -10,11 +10,8 @@ die(){
 }
 
 lookup_home(){
-  local home passwd
-  passwd="$(getent passwd "$1")" || return 1
-  IFS=: read -r _ _ _ _ _ home _ <<< "$passwd"
-  [ -n "$home" ] || return 1
-  echo "$home"
+  local home
+  home="$(getent passwd "$1" | cut -d: -f6)" && [ -n "$home" ] && echo "$home"
 }
 
 booty_user_home(){
