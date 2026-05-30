@@ -23,12 +23,11 @@ curl -fsSL https://booty.iceburg.net/install |
 booty sync
 ```
 
-* clones the [dotfiles repo](#dotfiles-repository-layout) (`BOOTY_REPO_URL`) to `~/.booty/booty` or updates it.
-  * if `BOOTY_SECRETS_URL` is set, it also syncs `~/.booty/booty-secrets`.
-* refreshes live files from the repo
-  * adds this repo's [/etc/profile.d/booty.sh](./dotfiles/archlinux/rootfs/etc/profile.d/booty.sh), which adds booty commands to PATH for new login shells.
+`booty sync` clones or updates `BOOTY_REPO_URL` at `~/.booty/booty`, _optionally_ syncs `BOOTY_SECRETS_URL` at `~/.booty/booty-secrets`, then applies public dotfiles overlaid by secrets when available.
 
 `booty sync` runs during [booty-bootstrap](#bootstrap). Re-run whenever dotfile or secrets URLs change.
+
+Unless set in the environment, `BOOTY_REPO_URL` and `BOOTY_SECRETS_URL` are read from `~/.booty/config`. [Bootstrap](#bootstrap) writes this file from resolved user config, e.g. [config/users/nesta.yaml](./bootstrap/archlinux/config/users/nesta.yaml).
 
 ## Commands
 
@@ -87,7 +86,7 @@ Set `secrets_url` in bootstrap config, or pass `BOOTY_SECRETS_URL` for ad hoc in
 ```yaml
 # bootstrap/$BOOTY_OS/config/users/$USER.yaml
 repo_url: git@github.com:yourname/booty.git
-secrets_url: gcrypt::git@github.com:yourname/booty-secrets.git
+secrets_url: gcrypt::https://github.com/yourname/booty-secrets.git
 ```
 
 After sync, work with sensitive files as you would with `booty`, but via the `booty-secrets` command:
@@ -107,7 +106,7 @@ booty-secrets push
 
 `booty-secrets` requires a functioning GPG key. If you don't have a GPG key yet, [create one](https://docs.github.com/en/authentication/managing-commit-signature-verification/generating-a-new-gpg-key) first.
 
-:thought_balloon: You'll want to preserve this key across fresh machines, and so an export/import mechanism exists;
+:thought_balloon: You may want to preserve this key across machines using the export/import mechanism;
 
 #### Export
 
@@ -121,10 +120,10 @@ By default this writes to `$BOOTY_HOME/gnupg.tar.gz.age`, normally `~/.booty/gnu
 
 #### Import
 
-On a new host, place the archive at the default path for automatic import during bootstrap, or import it and re-run [sync](#sync):
+On a new host, place the archive at the default path for automatic import during bootstrap, or import it yourself and re-run [sync](#sync):
 
 ```sh
-booty gpg import
+booty gpg import [path/to/gnupg.tar.gz.age]
 booty sync
 ```
 

@@ -50,14 +50,50 @@ GPG_EXPORTS = {
 }
 GPG_USAGE = "usage: booty gpg <export|import> [archive.tar.gz.age]"
 HELP_COMMANDS = {"help", "-h", "--help"}
+COLOR = (
+    os.environ.get("NO_COLOR") is None
+    and os.environ.get("TERM") != "dumb"
+    and (sys.stderr.isatty() or os.environ.get("FORCE_COLOR"))
+)
+STYLES = {"bold": "1", "dim": "2", "yellow": "33", "red": "31"}
+SECTION_STARTED = False
 
 
 class BootyError(RuntimeError):
     pass
 
 
-def log(message: str) -> None:
-    print(message, file=sys.stderr)
+def paint(message: str, *styles: str) -> str:
+    if not COLOR or not styles:
+        return message
+    codes = ";".join(STYLES[style] for style in styles)
+    return f"\033[{codes}m{message}\033[0m"
+
+
+def log(message: str = "", *styles: str) -> None:
+    print(paint(message, *styles), file=sys.stderr)
+
+
+def section(message: str) -> None:
+    global SECTION_STARTED
+    if SECTION_STARTED:
+        log()
+    SECTION_STARTED = True
+    log(f"==> {message}", "bold")
+
+
+def warn(message: str, *hints: str) -> None:
+    log(f"WARNING: {message}", "yellow", "bold")
+    for hint in hints:
+        log(f"  {hint}", "dim")
+
+
+def error(message: str) -> None:
+    log(f"ERROR: {message}", "red", "bold")
+
+
+def ok(message: str) -> None:
+    log(f"OK: {message}", "bold")
 
 
 def fail(message: str) -> None:
@@ -280,7 +316,8 @@ class App:
     def __init__(self) -> None:
         self.home = user_home()
         self.booty_home = Path(os.environ.get("BOOTY_HOME") or self.home / ".booty")
-        for name, value in parse_config(self.booty_home / "config").items():
+        self.config_file = self.booty_home / "config"
+        for name, value in parse_config(self.config_file).items():
             if not os.environ.get(name):
                 os.environ[name] = value
         self.os_name = os.environ.get("BOOTY_OS") or detect_os()
@@ -293,7 +330,7 @@ class App:
         self.tmp_root = self.booty_home / "tmp" / f"booty.{os.getpid()}"
         self.public = Repo("public", self.booty_home / "booty")
         self.secrets = Repo("secrets", self.booty_home / "booty-secrets")
-        self.selected = self.secrets if os.environ.get("BOOTY_SECRETS") else self.public
+        self.current_repo = self.secrets if os.environ.get("BOOTY_SECRETS") else self.public
         self.applied = AppliedPaths(self.data_home)
         self.areas = tuple(self.build_areas())
         os.environ["BOOTY_HOME"] = str(self.booty_home)
@@ -306,6 +343,21 @@ class App:
         os.chmod(self.booty_home / "tmp", 0o700)
         os.chmod(self.tmp_root, 0o700)
         return tempfile.TemporaryDirectory(prefix=f"{prefix}.", dir=self.tmp_root)
+
+    def short_path(self, path: Path) -> str:
+        if path.is_relative_to(self.home):
+            rel = path.relative_to(self.home)
+            return "~" if not rel.parts else f"~/{rel}"
+        return str(path)
+
+    def config_hint(self, name: str, verb: str = "check") -> str:
+        return f"{verb} {name} in {self.short_path(self.config_file)}"
+
+    def secrets_hint(self, verb: str = "check") -> str:
+        return self.config_hint("BOOTY_SECRETS_URL", verb)
+
+    def profile(self) -> str:
+        return f"{self.os_name}/{self.host}/{self.user}"
 
     def dotfiles(self, repo: Repo) -> Path:
         return repo.path / "dotfiles" / self.os_name
@@ -359,8 +411,11 @@ class App:
             fail("refusing to manage target root")
         return ManagedTarget(system, rel, absolute)
 
-    def active_repos(self) -> list[Repo]:
+    def checked_out_repos(self) -> list[Repo]:
         return [repo for repo in (self.public, self.secrets) if repo.checkout]
+
+    def visible_repos(self) -> list[Repo]:
+        return [self.current_repo] if self.current_repo == self.secrets else self.checked_out_repos()
 
     def needs_sudo(self, area: Area) -> bool:
         return area.live_system and os.geteuid() != 0
@@ -368,8 +423,8 @@ class App:
     def owner(self, area: Area | None = None) -> str:
         return "0:0" if area and self.needs_sudo(area) else f"{os.getuid()}:{os.getgid()}"
 
-    def require_selected(self) -> Repo:
-        repo = self.selected
+    def require_current_repo(self) -> Repo:
+        repo = self.current_repo
         if not repo.checkout:
             hint = "run 'booty sync'" if repo == self.secrets else "run install or clone your repo there"
             fail(f"missing {repo.name} checkout: {repo.path}; {hint}")
@@ -400,6 +455,10 @@ class App:
                 f"{repo.name} checkout has no dotfiles for {self.os_name}/{self.host}/{self.user} "
                 f"in {self.dotfiles(repo)}; see README.md#dotfiles-repository-layout"
             )
+
+    def warn_empty_secrets(self) -> None:
+        if self.current_repo == self.secrets and not self.has_dotfiles(self.secrets):
+            warn(f"no secrets for {self.profile()}", self.secrets_hint())
 
     def render(self, sources: dict[str, SourceFile], root: Path) -> None:
         for rel, source in sources.items():
@@ -511,6 +570,7 @@ class App:
         for area, sources, old, desired_rels in self.managed_areas(repos):
             if not sources and not old:
                 continue
+            log(f"apply {area.name}: {len(sources)} managed path(s)")
             with self.tmpdir(f"render-{area.name}") as tmp:
                 render_root = Path(tmp)
                 self.render(sources, render_root)
@@ -522,14 +582,19 @@ class App:
     def apply_dotfiles(self, args: list[str]) -> int:
         if args:
             fail("usage: booty apply")
-        self.require_selected()
-        self.apply_areas(self.active_repos())
+        self.require_current_repo()
+        section("apply dotfiles")
+        self.apply_areas(self.checked_out_repos())
+        ok("dotfiles applied")
         return 0
 
     def pull(self, _args: list[str]) -> int:
-        repo = self.require_selected()
+        repo = self.require_current_repo()
+        section(f"{repo.name} checkout")
         self.pull_repo(repo)
-        self.apply_areas(self.active_repos())
+        section("apply dotfiles")
+        self.apply_areas(self.checked_out_repos())
+        ok("dotfiles applied")
         return 0
 
     def file_changed(self, desired: Path, actual: Path) -> bool:
@@ -572,8 +637,9 @@ class App:
         return run(["sudo", "cmp", "-s", str(desired), str(actual)], check=False).returncode != 0
 
     def status(self, args: list[str]) -> int:
-        repo = self.require_selected()
-        repos = self.active_repos()
+        repo = self.require_current_repo()
+        self.warn_empty_secrets()
+        repos = self.visible_repos()
         live_changes = []
         files = self.select_managed(args, repos)
         for file in files:
@@ -612,15 +678,17 @@ class App:
         return 1 if live_changes else 0
 
     def ls(self, args: list[str]) -> int:
-        self.require_selected()
-        for file in self.select_managed(args, self.active_repos()):
+        self.require_current_repo()
+        self.warn_empty_secrets()
+        for file in self.select_managed(args, self.visible_repos()):
             if file.source:
                 print(file.target.path)
         return 0
 
     def diff(self, args: list[str]) -> int:
-        self.require_selected()
-        repos = self.active_repos()
+        self.require_current_repo()
+        self.warn_empty_secrets()
+        repos = self.visible_repos()
         for area, files in self.group_by_area(self.select_managed(args, repos)):
             rels = {file.target.rel for file in files}
             sources = {file.target.rel: file.source for file in files if file.source}
@@ -673,11 +741,11 @@ class App:
     def add(self, args: list[str]) -> int:
         if not args:
             fail("usage: booty add <pathspec>...")
-        repo = self.require_selected()
+        repo = self.require_current_repo()
         targets = self.select_live(args)
         deleted = [
             file
-            for file in self.select_managed(args, self.active_repos(), required=False)
+            for file in self.select_managed(args, self.visible_repos(), required=False)
             if file.source and file.source.repo == repo and not self.target_exists(file.target)
         ]
         if not targets and not deleted:
@@ -697,8 +765,8 @@ class App:
     def restore(self, args: list[str]) -> int:
         if not args:
             fail("usage: booty restore <pathspec>...")
-        self.require_selected()
-        for file in self.select_managed(args, self.active_repos()):
+        self.require_current_repo()
+        for file in self.select_managed(args, self.visible_repos()):
             if file.source:
                 self.copy_to_target(file.source.source, file.target)
                 self.applied.add(file.target)
@@ -708,7 +776,7 @@ class App:
         return 0
 
     def tracked_source(self, target: ManagedTarget, repo: Repo) -> SourceFile:
-        sources = self.source_index(target.area, self.active_repos())
+        sources = self.source_index(target.area, self.visible_repos())
         entry = sources.get(target.rel)
         if not entry or entry.repo != repo:
             fail(f"path '{target.path}' is not tracked")
@@ -717,8 +785,8 @@ class App:
     def rm(self, args: list[str]) -> int:
         if not args:
             fail("usage: booty rm <pathspec>...")
-        repo = self.require_selected()
-        files = self.select_managed(args, self.active_repos())
+        repo = self.require_current_repo()
+        files = self.select_managed(args, self.visible_repos())
         for file in files:
             if not file.source or file.source.repo != repo:
                 fail(f"path '{file.target.path}' is not tracked")
@@ -742,7 +810,7 @@ class App:
     def mv(self, args: list[str]) -> int:
         if len(args) != 2:
             fail("usage: booty mv <src> <dst>")
-        repo = self.require_selected()
+        repo = self.require_current_repo()
         src = self.route(args[0])
         dst = self.route(args[1])
         if not self.target_exists(src):
@@ -761,8 +829,8 @@ class App:
         return 0
 
     def commit(self, args: list[str]) -> int:
-        repo = self.require_selected()
-        repos = self.active_repos()
+        repo = self.require_current_repo()
+        repos = self.visible_repos()
         for area in self.areas:
             for target_rel, entry in self.source_index(area, repos).items():
                 if entry.repo != repo:
@@ -778,68 +846,100 @@ class App:
                     self.applied.discard(target)
         return repo.git("commit", *args, check=False).returncode
 
-    def ensure_checkout(self, repo: Repo, url: str, required: bool) -> bool:
+    def ensure_checkout(self, repo: Repo, url: str, required: bool, *, hint: str = "") -> bool:
         if repo.checkout:
             if url:
-                log(f"updating {repo.name} checkout remote: {url}")
+                log(f"remote: {url}")
                 if repo.git("remote", "set-url", "origin", url, check=False).returncode:
                     repo.git("remote", "add", "origin", url)
             return True
         if url:
-            log(f"cloning {repo.name} checkout: {url} -> {repo.path}")
+            log(f"clone: {url} -> {repo.path}")
             repo.path.parent.mkdir(parents=True, exist_ok=True)
-            run(["git", "clone", url, str(repo.path)])
+            clone = run(["git", "clone", url, str(repo.path)], check=required)
+            if clone.returncode:
+                warn(f"could not clone {repo.name} checkout", hint)
+                return False
             return True
         if required:
             fail(f"missing {repo.name} checkout: {repo.path}; set BOOTY_REPO_URL or run install")
         return False
 
-    def pull_repo(self, repo: Repo) -> None:
+    def pull_repo(self, repo: Repo, *, required: bool = True, warn_on_error: bool = True) -> bool:
         remote = repo.git("remote", "get-url", "origin", capture=True, check=False, stderr=subprocess.DEVNULL)
         if remote.returncode == 0:
-            repo.git("pull", "--ff-only")
+            pull = repo.git("pull", "--ff-only", check=required)
+            if pull.returncode:
+                if warn_on_error:
+                    hints = [self.secrets_hint()] if repo == self.secrets else []
+                    warn(f"could not update {repo.name} checkout; using existing copy", *hints)
+                return False
         elif DEBUG:
             log(f"  [debug:booty] {repo.name} checkout has no origin remote")
+        return True
 
-    def sync_secrets(self) -> list[Repo]:
+    def prepare_secrets_checkout(self) -> bool:
         secrets_url = os.environ.get("BOOTY_SECRETS_URL", "")
         if not secrets_url:
-            if self.secrets.checkout:
-                return [self.secrets]
-            log("skipping secrets checkout: no BOOTY_SECRETS_URL")
-            return []
+            if not self.secrets.checkout:
+                warn("secrets checkout is not configured", self.secrets_hint("set"))
+            return self.secrets.checkout
         if not secrets_url.startswith("gcrypt::"):
-            fail("BOOTY_SECRETS_URL must use gcrypt::")
+            fail(f"BOOTY_SECRETS_URL must use gcrypt::; {self.secrets_hint()}")
         if not self.gpg_ready():
             archive = self.booty_home / "gnupg.tar.gz.age"
             if not archive.is_file():
-                log(
-                    f"skipping secrets checkout: copy GPG archive to {archive} "
-                    "or run 'booty gpg import <archive>'; then rerun 'booty sync'"
+                warn(
+                    "skipping secrets checkout; GPG key is not ready",
+                    f"copy GPG archive to {self.short_path(archive)} or run 'booty gpg import'",
+                    self.secrets_hint(),
                 )
-                return []
+                return False
             self.gpg(["import", str(archive)])
         if not command_exists("git-remote-gcrypt"):
             fail("booty sync requires git-remote-gcrypt for secrets checkout")
-        return [self.secrets] if self.ensure_checkout(self.secrets, secrets_url, False) else []
+        return self.ensure_checkout(
+            self.secrets,
+            secrets_url,
+            False,
+            hint=self.secrets_hint(),
+        )
 
     def sync(self, _args: list[str]) -> int:
         self.booty_home.mkdir(parents=True, exist_ok=True)
+        section("public checkout")
         public_existed = self.public.checkout
         self.ensure_checkout(self.public, os.environ.get("BOOTY_REPO_URL", ""), True)
         if public_existed:
-            log(f"updating public checkout: {self.public.path}")
+            log(f"path: {self.public.path}")
             self.pull_repo(self.public)
         self.require_dotfiles(self.public)
 
+        section("secrets checkout")
         secrets_existed = self.secrets.checkout
-        repos = [self.public, *self.sync_secrets()]
-        if self.secrets in repos and secrets_existed:
-            log(f"updating secrets checkout: {self.secrets.path}")
-            self.pull_repo(self.secrets)
+        use_secrets = self.prepare_secrets_checkout()
+        repos = [self.public] + ([self.secrets] if use_secrets else [])
+        secrets_ok = True
+        if use_secrets and secrets_existed:
+            log(f"path: {self.secrets.path}")
+            secrets_ok = self.pull_repo(self.secrets, required=False, warn_on_error=False)
+        secrets_ready = use_secrets and self.has_dotfiles(self.secrets)
+        if use_secrets and not secrets_ready:
+            message = (
+                "secrets checkout unavailable; using public dotfiles only"
+                if not secrets_ok
+                else f"no secrets for {self.profile()}"
+            )
+            warn(message, self.secrets_hint())
+        elif use_secrets and not secrets_ok:
+            warn("could not update secrets checkout; using existing copy", self.secrets_hint())
 
-        log(f"applying public checkout: {self.public.path}")
+        section("apply dotfiles")
+        log(f"public: {self.public.path}")
+        if secrets_ready:
+            log(f"secrets: {self.secrets.path}")
         self.apply_areas(repos)
+        ok("sync complete")
         return 0
 
     def gpg_ready(self) -> bool:
@@ -921,7 +1021,7 @@ class App:
         if cmd in COMMANDS or cmd in COMMAND_ALIASES:
             return getattr(self, COMMAND_ALIASES.get(cmd, cmd).replace("-", "_"))(args)
         if cmd in GIT_COMMANDS:
-            return self.require_selected().git(cmd, *args, check=False).returncode
+            return self.require_current_repo().git(cmd, *args, check=False).returncode
         fail(f"unsupported command '{cmd}'")
 
 
@@ -940,9 +1040,9 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main(sys.argv[1:]))
     except BootyError as err:
-        log(str(err))
+        error(str(err))
         if not DEBUG:
-            log("  (re-run with DEBUG=1 for a full trace)")
+            log("  (re-run with DEBUG=1 for a full trace)", "dim")
         raise SystemExit(1) from None
     except KeyboardInterrupt:
         log("interrupted")
