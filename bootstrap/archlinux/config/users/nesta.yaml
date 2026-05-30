@@ -1,2 +1,2 @@
 repo_url: https://github.com/briceburg/booty.git
-secrets_url: gcrypt::git@github.com:briceburg/booty-secrets.git
+secrets_url: gcrypt::https://github.com/briceburg/booty-secrets.git
