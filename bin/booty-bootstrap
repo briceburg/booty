@@ -44,7 +44,15 @@ export BOOTSTRAP_CONFIG_DIR="${BOOTSTRAP_CONFIG_DIR:-$BOOTY_HOME/bootstrap}"
 export BOOTSTRAP_CONFIG="$BOOTSTRAP_CONFIG_DIR/$BOOTY_OS.yaml"
 
 has(){ local x="$1" y; shift; for y; do [ "$x" = "$y" ] && return 0; done; return 1; }
-add(){ declare -n a="$1"; local x; shift; for x; do [ -n "$x" ] && ! has "$x" "${a[@]:-}" && a+=("$x"); done; }
+add(){
+  declare -n a="$1"
+  local x
+  shift
+  for x in "$@"; do
+    [ -n "$x" ] || continue
+    has "$x" "${a[@]}" || a+=("$x")
+  done
+}
 yaml(){ yq eval -r "$2 | select(. != null and . != \"\")" "$1" 2>/dev/null; }
 
 BOOTSTRAP_ENV=(

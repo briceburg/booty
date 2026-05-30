@@ -49,6 +49,16 @@ has_output() {
   has_output 'declare -x BOOTSTRAP_MULTILIB="true"' '"steam"' '"lib32-mesa"'
 }
 
+@test "archlinux config deduplicates repeated list items" {
+  writef "$FIXTURE_REPO/bootstrap/archlinux/config/hosts" duplicates.yaml \
+    'enabled_features: [core, ci]' \
+    'pacman: [git, python]'
+
+  run arch_config duplicates
+  [ "$status" -eq 0 ]
+  has_output 'declare -a BOOTSTRAP_PACMAN=([0]="git" [1]="python" [2]="base"'
+}
+
 @test "archlinux config handles users without config only when repo url is supplied" {
   rm -f "$FIXTURE_REPO/bootstrap/archlinux/config/users/nesta.yaml"
 
