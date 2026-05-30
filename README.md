@@ -137,6 +137,12 @@ booty-bootstrap config    # print resolved config
 
 Bootstrap state lives under `~/.booty/bootstrap`. It is idempotent and meant to provision or refresh the underlying OS.
 
+On Arch, configured AUR packages are installed through `/usr/local/bin/aur-install`, which is also available after bootstrap:
+
+```sh
+aur-install visual-studio-code-bin
+```
+
 Add an OS by creating `bootstrap/$OS/`:
 
 ```text

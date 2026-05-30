@@ -1,25 +1,8 @@
-user_home="$(lookup_home "$BOOTSTRAP_USER")" || die "cannot find home directory for $BOOTSTRAP_USER"
-
-install_aur(){
-  local aur="$1" aur_dir pkg aur_packages=()
-  aur_dir="$user_home/git/AUR/$aur"
-  if [ -d "$aur_dir/.git" ]; then
-    as_user "$BOOTSTRAP_USER" git -C "$aur_dir" pull --ff-only
-  else
-    as_user "$BOOTSTRAP_USER" git -C "$user_home/git/AUR" clone "https://aur.archlinux.org/$aur.git" "$aur"
-  fi
-  as_user_in "$BOOTSTRAP_USER" "$aur_dir" makepkg --noconfirm --force
-  while IFS= read -r pkg; do
-    [[ "$pkg" = /* ]] || pkg="$aur_dir/$pkg"
-    [ ! -f "$pkg" ] || aur_packages+=("$pkg")
-  done < <(as_user_in "$BOOTSTRAP_USER" "$aur_dir" makepkg --packagelist)
-  ((${#aur_packages[@]})) || die "AUR build produced no packages: $aur"
-  pacman -U --noconfirm --needed "${aur_packages[@]}"
-}
-
 if ((${#BOOTSTRAP_AUR[@]})); then
+  aur_install="$BOOTY_HOME/booty/dotfiles/$BOOTY_OS/rootfs/usr/local/bin/aur-install"
   [ "$BOOTSTRAP_USER" != root ] || die "AUR packages require a non-root BOOTSTRAP_USER"
-  for aur in "${BOOTSTRAP_AUR[@]}"; do install_aur "$aur"; done
+  [ -x "$aur_install" ] || die "missing AUR installer: $aur_install"
+  as_user "$BOOTSTRAP_USER" "$aur_install" "${BOOTSTRAP_AUR[@]}"
 fi
 
 [ ! -e /run/systemd/resolve/stub-resolv.conf ] || ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf

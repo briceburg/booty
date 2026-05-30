@@ -825,13 +825,16 @@ class App:
 
     def sync(self, _args: list[str]) -> int:
         self.booty_home.mkdir(parents=True, exist_ok=True)
+        public_existed = self.public.checkout
         self.ensure_checkout(self.public, os.environ.get("BOOTY_REPO_URL", ""), True)
-        log(f"updating public checkout: {self.public.path}")
-        self.pull_repo(self.public)
+        if public_existed:
+            log(f"updating public checkout: {self.public.path}")
+            self.pull_repo(self.public)
         self.require_dotfiles(self.public)
 
+        secrets_existed = self.secrets.checkout
         repos = [self.public, *self.sync_secrets()]
-        if self.secrets in repos:
+        if self.secrets in repos and secrets_existed:
             log(f"updating secrets checkout: {self.secrets.path}")
             self.pull_repo(self.secrets)
 

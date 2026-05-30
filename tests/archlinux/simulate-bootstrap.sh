@@ -28,6 +28,8 @@ build_sim_repo() {
   copy_tree /work/bootstrap "$repo/bootstrap"
   copy_tree /work/tests/fixtures/bootstrap "$repo/bootstrap"
   copy_tree /work/tests/fixtures/dotfiles/archlinux "$repo/dotfiles/archlinux"
+  cp /work/dotfiles/archlinux/rootfs/usr/local/bin/aur-install \
+    "$repo/dotfiles/archlinux/rootfs/usr/local/bin/aur-install"
   git -C "$repo" init -q
   git_id "$repo"
   git -C "$repo" add .
@@ -57,6 +59,7 @@ check "booty apply restores system dotfile owner" ci_booty apply
 check "system dotfile owner restored" owned_by /etc/ci-test.conf root:root
 check "system helper pulled executable" /usr/local/bin/ci-system-probe
 check "system helper owned by root" owned_by /usr/local/bin/ci-system-probe root:root
+check "AUR helper pulled executable" test -x /usr/local/bin/aur-install
 check "AUR checkout cloned as ci" test -f /home/ci/git/AUR/git-remote-gcrypt/PKGBUILD
 check "AUR checkout owned by ci" owned_by /home/ci/git/AUR/git-remote-gcrypt ci:ci
 check "AUR package installed by bootstrap" command -v git-remote-gcrypt

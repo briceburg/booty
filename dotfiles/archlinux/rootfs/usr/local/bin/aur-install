@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# booty managed
+set -eo pipefail
+
+log(){ echo "$*" >&2; }
+die(){ log "$*"; exit 1; }
+
+repo_dir="${AUR_REPO_DIR:-$HOME/git/AUR}"
+
+command -v git >/dev/null || die "git is required"
+command -v makepkg >/dev/null || die "makepkg is required"
+[ "$EUID" -ne 0 ] || die "cannot execute as superuser"
+[ "$#" -gt 0 ] || die "usage: aur-install <package>..."
+
+mkdir -p "$repo_dir"
+
+for aur in "$@"; do
+  case "$aur" in
+    ""|*/*) die "invalid AUR package name: $aur" ;;
+  esac
+
+  aur_dir="$repo_dir/$aur"
+  if [ -d "$aur_dir/.git" ]; then
+    git -C "$aur_dir" pull --ff-only
+  elif [ -e "$aur_dir" ]; then
+    die "AUR checkout exists but is not a git repository: $aur_dir"
+  else
+    git -C "$repo_dir" clone "https://aur.archlinux.org/$aur.git" "$aur"
+  fi
+
+  makepkg -D "$aur_dir" -si --noconfirm --needed
+done

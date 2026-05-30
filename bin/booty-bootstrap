@@ -164,12 +164,6 @@ as_user(){
   fi
 }
 
-as_user_in(){
-  local user="$1" dir="$2"
-  shift 2
-  (cd "$dir" && as_user "$user" "$@")
-}
-
 add_user_groups(){
   local user="$1" group
   shift
