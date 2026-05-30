@@ -17,6 +17,17 @@ seed_public_remote() {
   git_commit_all "$1" "${2:-seed public}"
 }
 
+sync_secrets_url() {
+  : > "$BOOTY_HOME/config"
+  fake gcrypt
+  fake gpg
+  run env BOOTY_REPO_URL= BOOTY_SECRETS_URL="$1" "$BOOTY_ROOT/bin/booty" sync
+}
+
+assert_secrets_hint() {
+  [[ "$output" == *"check BOOTY_SECRETS_URL in ~/.booty/config"* ]]
+}
+
 # Apply from an existing checkout.
 
 @test "booty pull applies repo-shaped home and rootfs files" {
@@ -144,7 +155,58 @@ seed_public_remote() {
   run env BOOTY_REPO_URL= BOOTY_SECRETS_URL="gcrypt::file://$TEST_ROOT/secrets-remote" "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -eq 0 ]
   [[ "$output" == *"skipping secrets checkout"* ]]
+  assert_secrets_hint
   [ ! -e "$BOOTY_HOME/booty-secrets" ]
+}
+
+@test "booty sync warns when secrets checkout has no dotfiles" {
+  secrets_remote="$TEST_ROOT/empty-secrets"
+  writef "$secrets_remote" README.md empty
+  git_init "$secrets_remote"
+  git_commit_all "$secrets_remote" "empty secrets"
+  rm -rf "$BOOTY_HOME/booty-secrets"
+
+  sync_secrets_url "gcrypt::file://$secrets_remote"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING: no secrets for archlinux/hartford/nesta"* ]]
+  assert_secrets_hint
+}
+
+@test "booty sync warns and continues when secrets clone fails" {
+  rm -rf "$BOOTY_HOME/booty-secrets"
+
+  sync_secrets_url "gcrypt::file://$TEST_ROOT/missing-secrets"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING: could not clone secrets checkout"* ]]
+  assert_secrets_hint
+  file_eq "$FIXTURE_HOME/.bashrc" shell
+}
+
+@test "booty sync warns and uses existing secrets when update fails" {
+  FIXTURE_SECRETS="$BOOTY_HOME/booty-secrets"
+  fixture dotfiles/secrets/archlinux "$FIXTURE_SECRETS/dotfiles/archlinux"
+  git_init "$FIXTURE_SECRETS"
+  git -C "$FIXTURE_SECRETS" remote add origin "$TEST_ROOT/missing-secrets"
+
+  sync_secrets_url "gcrypt::file://$TEST_ROOT/missing-secrets"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING: could not update secrets checkout; using existing copy"* ]]
+  assert_secrets_hint
+  file_eq "$FIXTURE_ROOT/etc/secret.conf" secrets-root
+}
+
+@test "booty sync gives one warning when empty secrets cannot update" {
+  FIXTURE_SECRETS="$BOOTY_HOME/booty-secrets"
+  writef "$FIXTURE_SECRETS" README.md empty
+  git_init "$FIXTURE_SECRETS"
+  git -C "$FIXTURE_SECRETS" remote add origin "$TEST_ROOT/missing-secrets"
+
+  sync_secrets_url "gcrypt::file://$TEST_ROOT/missing-secrets"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING: secrets checkout unavailable; using public dotfiles only"* ]]
+  assert_secrets_hint
+  [[ "$output" != *"WARNING: no secrets for archlinux/hartford/nesta"* ]]
+  file_eq "$FIXTURE_HOME/.bashrc" shell
 }
 
 @test "booty sync rejects non-gcrypt secrets repo urls" {
@@ -153,6 +215,7 @@ seed_public_remote() {
   run env BOOTY_REPO_URL= BOOTY_SECRETS_URL="$TEST_ROOT/plain-remote" "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -ne 0 ]
   [[ "$output" == *"BOOTY_SECRETS_URL must use gcrypt::"* ]]
+  [[ "$output" == *"~/.booty/config"* ]]
 }
 
 # Git-facing commands operate on rendered dotfiles, not arbitrary worktrees.

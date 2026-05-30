@@ -21,6 +21,25 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
   [ -f "$FIXTURE_STATE/booty/system.paths" ]
 }
 
+@test "booty-secrets ls only shows secrets paths" {
+  run secrets ls
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"/etc/secret.conf"* ]]
+  [[ "$output" != *".bashrc"* ]]
+  [[ "$output" != *"/etc/example.conf"* ]]
+}
+
+@test "booty-secrets warns when checkout has no dotfiles" {
+  rm -rf "$FIXTURE_SECRETS/dotfiles"
+
+  run secrets ls
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WARNING: no secrets for archlinux/hartford/nesta"* ]]
+  [[ "$output" == *"check BOOTY_SECRETS_URL in ~/.booty/config"* ]]
+  [[ "$output" != *".bashrc"* ]]
+  [[ "$output" != *"/etc/example.conf"* ]]
+}
+
 @test "booty-secrets add writes new files to the secrets checkout" {
   fake gpg
   writef "$FIXTURE_HOME" ".private" private
