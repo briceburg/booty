@@ -14,12 +14,16 @@ teardown() {
   teardown_tmp
 }
 
-import_archive() {
-  env USER=nesta GNUPGHOME="$1" ARCHIVE="$2" expect -c '
+gpg_archive() {
+  env USER=nesta ACTION="$1" GNUPGHOME="$2" expect -c '
     set timeout 10
-    spawn $env(BOOTY_ROOT)/bin/booty gpg import $env(ARCHIVE)
+    spawn $env(BOOTY_ROOT)/bin/booty gpg $env(ACTION)
     expect -re "(?i)passphrase"
     send "test-passphrase\r"
+    if {$env(ACTION) eq "export"} {
+      expect -re "(?i)passphrase"
+      send "test-passphrase\r"
+    }
     expect eof
     catch wait result
     exit [lindex $result 3]
@@ -27,7 +31,7 @@ import_archive() {
 }
 
 @test "booty gpg exports and imports gpg home through age" {
-  archive="$TEST_ROOT/gnupg.tar.gz.age"
+  archive="$BOOTY_HOME/gnupg.tar.gz.age"
   restored="$TEST_ROOT/restored-gnupg"
 
   export GNUPGHOME="$TEST_ROOT/source-gnupg"
@@ -35,18 +39,9 @@ import_archive() {
   chmod 700 "$GNUPGHOME"
   gpg --batch --pinentry-mode loopback --passphrase '' --quick-generate-key test@example.invalid default default never
 
-  run env USER=nesta ARCHIVE="$archive" expect -c '
-    set timeout 10
-    spawn $env(BOOTY_ROOT)/bin/booty gpg export $env(ARCHIVE)
-    expect -re "(?i)passphrase"
-    send "test-passphrase\r"
-    expect -re "(?i)passphrase"
-    send "test-passphrase\r"
-    expect eof
-    catch wait result
-    exit [lindex $result 3]
-  '
+  run gpg_archive export "$GNUPGHOME"
   [ "$status" -eq 0 ]
+  [[ "$output" == *"wrote GPG archive: $archive"* ]]
   [ -s "$archive" ]
   [ "$(stat -c %a "$BOOTY_HOME/tmp")" = 700 ]
   [ -z "$(find "$BOOTY_HOME/tmp" -mindepth 1 -maxdepth 1 -print -quit)" ]
@@ -54,10 +49,8 @@ import_archive() {
   rm -rf "$GNUPGHOME"
   mkdir -p "$restored"
 
-  run import_archive "$restored/.gnupg" "$archive"
+  run gpg_archive import "$restored/.gnupg"
   [ "$status" -eq 0 ]
+  [[ "$output" == *"imported GPG archive: $archive -> $restored/.gnupg"* ]]
   GNUPGHOME="$restored/.gnupg" gpg --list-secret-keys --with-colons | grep -q '^sec'
-
-  run import_archive "$restored/.gnupg" "$archive"
-  [ "$status" -eq 0 ]
 }

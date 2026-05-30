@@ -114,15 +114,17 @@ booty-secrets push
 Export keys to a passphrase-protected archive and store it somewhere secure:
 
 ```sh
-booty gpg export /path/to/gnupg.tar.gz.age
+booty gpg export
 ```
+
+By default this writes to `$BOOTY_HOME/gnupg.tar.gz.age`, normally `~/.booty/gnupg.tar.gz.age`; pass a path to override it.
 
 #### Import
 
-On a new host, place the exported archive at `~/.booty/gnupg.tar.gz.age` for automatic import during bootstrap, or import it and re-run [sync](#sync) any time:
+On a new host, place the archive at the default path for automatic import during bootstrap, or import it and re-run [sync](#sync):
 
 ```sh
-booty gpg import /path/to/gnupg.tar.gz.age
+booty gpg import
 booty sync
 ```
 
