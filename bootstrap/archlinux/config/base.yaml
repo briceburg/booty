@@ -93,7 +93,9 @@ features:
   util:
     pacman:
       - atuin
+      - aws-cli-v2
       - ddcutil
+      - dosfstools
       - eza
       - github-cli
       - inetutils
