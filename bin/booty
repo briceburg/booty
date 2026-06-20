@@ -274,20 +274,27 @@ class ManagedFile:
 
 
 @dataclass(frozen=True)
+class ManagedView:
+    repos: tuple[Repo, ...]
+    state_repo: Repo | None = None
+
+
+@dataclass(frozen=True)
 class AppliedPaths:
     root: Path
 
-    def path(self, area: Area) -> Path:
-        return self.root / f"{area.name}.paths"
+    def path(self, area: Area, repo: Repo | None = None) -> Path:
+        prefix = f"{repo.name}." if repo else ""
+        return self.root / f"{prefix}{area.name}.paths"
 
-    def read(self, area: Area) -> set[str]:
-        path = self.path(area)
+    def read(self, area: Area, repo: Repo | None = None) -> set[str]:
+        path = self.path(area, repo)
         if not path.is_file():
             return set()
         return {valid_rel(line.strip(), area.target) for line in path.read_text().splitlines() if line.strip()}
 
-    def write(self, area: Area, rels: Iterable[str]) -> None:
-        path = self.path(area)
+    def write(self, area: Area, rels: Iterable[str], repo: Repo | None = None) -> None:
+        path = self.path(area, repo)
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp_path = None
         try:
@@ -300,16 +307,6 @@ class AppliedPaths:
             if tmp_path:
                 remove_leaf(tmp_path)
             raise
-
-    def add(self, target: ManagedTarget) -> None:
-        paths = self.read(target.area)
-        paths.add(target.rel)
-        self.write(target.area, paths)
-
-    def discard(self, target: ManagedTarget) -> None:
-        paths = self.read(target.area)
-        paths.discard(target.rel)
-        self.write(target.area, paths)
 
 
 class App:
@@ -414,8 +411,13 @@ class App:
     def checked_out_repos(self) -> list[Repo]:
         return [repo for repo in (self.public, self.secrets) if repo.checkout]
 
-    def visible_repos(self) -> list[Repo]:
-        return [self.current_repo] if self.current_repo == self.secrets else self.checked_out_repos()
+    def effective_view(self, repos: Sequence[Repo] | None = None) -> ManagedView:
+        return ManagedView(tuple(repos if repos is not None else self.checked_out_repos()))
+
+    def command_view(self) -> ManagedView:
+        if self.current_repo == self.secrets:
+            return ManagedView((self.secrets,), self.secrets)
+        return self.effective_view()
 
     def needs_sudo(self, area: Area) -> bool:
         return area.live_system and os.geteuid() != 0
@@ -464,19 +466,43 @@ class App:
         for rel, source in sources.items():
             copy_leaf(source.source, root / rel)
 
-    def managed_areas(self, repos: Sequence[Repo]):
+    def managed_areas(self, view: ManagedView):
         for area in self.areas:
-            sources = self.source_index(area, repos)
-            old = self.applied.read(area)
+            sources = self.source_index(area, view.repos)
+            state = self.applied.path(area, view.state_repo)
+            old = self.applied.read(area, view.state_repo) if state.is_file() else set(sources)
             yield area, sources, old, set(sources)
 
-    def managed_files(self, repos: Sequence[Repo]) -> Iterable[ManagedFile]:
-        for area, sources, old, desired_rels in self.managed_areas(repos):
+    def update_applied(self, target: ManagedTarget, present: bool, repo: Repo | None = None) -> None:
+        state = self.applied.path(target.area, repo)
+        if state.is_file():
+            rels = self.applied.read(target.area, repo)
+        else:
+            repos = [repo] if repo else self.checked_out_repos()
+            rels = set(self.source_index(target.area, repos))
+        (rels.add if present else rels.discard)(target.rel)
+        self.applied.write(target.area, rels, repo)
+
+    def refresh_target(self, target: ManagedTarget) -> None:
+        repos = self.checked_out_repos()
+        source = self.source_index(target.area, repos).get(target.rel)
+        if source:
+            self.copy_to_target(source.source, target)
+            self.update_applied(target, True, source.repo)
+        elif self.target_exists(target):
+            self.remove_target(target)
+        if not source:
+            for repo in repos:
+                self.update_applied(target, False, repo)
+        self.update_applied(target, source is not None)
+
+    def managed_files(self, view: ManagedView) -> Iterable[ManagedFile]:
+        for area, sources, old, desired_rels in self.managed_areas(view):
             for rel in sorted(desired_rels | old):
                 yield ManagedFile(self.managed_target(area, rel), sources.get(rel))
 
-    def select_managed(self, args: list[str], repos: Sequence[Repo], *, required: bool = True) -> list[ManagedFile]:
-        files = list(self.managed_files(repos))
+    def select_managed(self, args: list[str], view: ManagedView, *, required: bool = True) -> list[ManagedFile]:
+        files = list(self.managed_files(view))
         if not args:
             return files
         selected: dict[tuple[str, str], ManagedFile] = {}
@@ -567,8 +593,10 @@ class App:
         run(cmd)
 
     def apply_areas(self, repos: Sequence[Repo]) -> None:
-        for area, sources, old, desired_rels in self.managed_areas(repos):
+        for area, sources, old, desired_rels in self.managed_areas(self.effective_view(repos)):
             if not sources and not old:
+                for repo in repos:
+                    self.applied.write(area, (), repo)
                 continue
             log(f"apply {area.name}: {len(sources)} managed path(s)")
             with self.tmpdir(f"render-{area.name}") as tmp:
@@ -578,6 +606,8 @@ class App:
             for rel in sorted(old - desired_rels):
                 self.remove_target(self.managed_target(area, rel))
             self.applied.write(area, desired_rels)
+            for repo in repos:
+                self.applied.write(area, self.source_index(area, [repo]), repo)
 
     def apply_dotfiles(self, args: list[str]) -> int:
         if args:
@@ -639,9 +669,9 @@ class App:
     def status(self, args: list[str]) -> int:
         repo = self.require_current_repo()
         self.warn_empty_secrets()
-        repos = self.visible_repos()
+        view = self.command_view()
         live_changes = []
-        files = self.select_managed(args, repos)
+        files = self.select_managed(args, view)
         for file in files:
             target, source = file.target, file.source
             if source:
@@ -663,8 +693,9 @@ class App:
             print(f"On branch {branch}\n")
         if live_changes:
             print("Live file changes:")
-            print('  (use "booty add <file>..." or "booty rm <file>..." to update what will be committed)')
-            print('  (use "booty restore <file>..." to discard changes in live files)\n')
+            command = "booty-secrets" if repo == self.secrets else "booty"
+            print(f'  (use "{command} add <file>..." or "{command} rm <file>..." to update what will be committed)')
+            print(f'  (use "{command} restore <file>..." to discard changes in live files)\n')
             for label, rel in live_changes:
                 print(f"\t{label:<12}{rel}")
             print()
@@ -680,7 +711,7 @@ class App:
     def ls(self, args: list[str]) -> int:
         self.require_current_repo()
         self.warn_empty_secrets()
-        for file in self.select_managed(args, self.visible_repos()):
+        for file in self.select_managed(args, self.command_view()):
             if file.source:
                 print(file.target.path)
         return 0
@@ -688,8 +719,8 @@ class App:
     def diff(self, args: list[str]) -> int:
         self.require_current_repo()
         self.warn_empty_secrets()
-        repos = self.visible_repos()
-        for area, files in self.group_by_area(self.select_managed(args, repos)):
+        view = self.command_view()
+        for area, files in self.group_by_area(self.select_managed(args, view)):
             rels = {file.target.rel for file in files}
             sources = {file.target.rel: file.source for file in files if file.source}
             with self.tmpdir(f"diff-{area.name}") as tmp:
@@ -738,6 +769,12 @@ class App:
         else:
             remove_leaf(target.path)
 
+    def remove_source(self, target: ManagedTarget, source: Path, repo: Repo) -> None:
+        repo.git("rm", "-f", "--ignore-unmatch", "--", repo.rel(source))
+        remove_leaf(source)
+        self.update_applied(target, False, repo)
+        self.refresh_target(target)
+
     def add(self, args: list[str]) -> int:
         if not args:
             fail("usage: booty add <pathspec>...")
@@ -745,7 +782,7 @@ class App:
         targets = self.select_live(args)
         deleted = [
             file
-            for file in self.select_managed(args, self.visible_repos(), required=False)
+            for file in self.select_managed(args, self.command_view(), required=False)
             if file.source and file.source.repo == repo and not self.target_exists(file.target)
         ]
         if not targets and not deleted:
@@ -754,29 +791,28 @@ class App:
             source = target.source_for(repo)
             self.copy_from_target(target, source)
             repo.git("add", "--", repo.rel(source))
-            self.applied.add(target)
+            self.update_applied(target, True, repo)
+            self.update_applied(target, True)
         for file in deleted:
-            source = file.source.source
-            repo.git("rm", "-f", "--ignore-unmatch", "--", repo.rel(source))
-            remove_leaf(source)
-            self.applied.discard(file.target)
+            self.remove_source(file.target, file.source.source, repo)
         return 0
 
     def restore(self, args: list[str]) -> int:
         if not args:
             fail("usage: booty restore <pathspec>...")
-        self.require_current_repo()
-        for file in self.select_managed(args, self.visible_repos()):
+        repo = self.require_current_repo()
+        for file in self.select_managed(args, self.command_view()):
             if file.source:
                 self.copy_to_target(file.source.source, file.target)
-                self.applied.add(file.target)
+                self.update_applied(file.target, True, file.source.repo)
+                self.update_applied(file.target, True)
             else:
-                self.remove_target(file.target)
-                self.applied.discard(file.target)
+                self.update_applied(file.target, False, repo)
+                self.refresh_target(file.target)
         return 0
 
     def tracked_source(self, target: ManagedTarget, repo: Repo) -> SourceFile:
-        sources = self.source_index(target.area, self.visible_repos())
+        sources = self.source_index(target.area, self.command_view().repos)
         entry = sources.get(target.rel)
         if not entry or entry.repo != repo:
             fail(f"path '{target.path}' is not tracked")
@@ -786,16 +822,13 @@ class App:
         if not args:
             fail("usage: booty rm <pathspec>...")
         repo = self.require_current_repo()
-        files = self.select_managed(args, self.visible_repos())
+        files = self.select_managed(args, self.command_view())
         for file in files:
             if not file.source or file.source.repo != repo:
                 fail(f"path '{file.target.path}' is not tracked")
         for file in files:
             target, entry = file.target, file.source
-            self.remove_target(target)
-            repo.git("rm", "-f", "--ignore-unmatch", "--", repo.rel(entry.source))
-            remove_leaf(entry.source)
-            self.applied.discard(target)
+            self.remove_source(target, entry.source, repo)
         return 0
 
     def move_target(self, src: ManagedTarget, dst: ManagedTarget) -> None:
@@ -824,26 +857,25 @@ class App:
         shutil.move(str(entry.source), str(dest_source))
         repo.git("rm", "-f", "--ignore-unmatch", "--", repo.rel(entry.source))
         repo.git("add", "--", repo.rel(dest_source))
-        self.applied.discard(src)
-        self.applied.add(dst)
+        self.update_applied(src, False, repo)
+        self.update_applied(dst, True, repo)
+        self.refresh_target(src)
+        self.update_applied(dst, True)
         return 0
 
     def commit(self, args: list[str]) -> int:
         repo = self.require_current_repo()
-        repos = self.visible_repos()
+        repos = self.command_view().repos
         for area in self.areas:
             for target_rel, entry in self.source_index(area, repos).items():
                 if entry.repo != repo:
                     continue
                 target = self.managed_target(area, target_rel)
-                source_rel = repo.rel(entry.source)
                 if self.target_exists(target):
                     self.copy_from_target(target, entry.source)
-                    repo.git("add", "--", source_rel)
+                    repo.git("add", "--", repo.rel(entry.source))
                 else:
-                    repo.git("rm", "-f", "--ignore-unmatch", "--", source_rel)
-                    remove_leaf(entry.source)
-                    self.applied.discard(target)
+                    self.remove_source(target, entry.source, repo)
         return repo.git("commit", *args, check=False).returncode
 
     def ensure_checkout(self, repo: Repo, url: str, required: bool, *, hint: str = "") -> bool:
