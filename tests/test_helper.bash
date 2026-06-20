@@ -64,6 +64,7 @@ setup_booty_public() {
     "BOOTY_SECRETS_URL=\${BOOTY_SECRETS_URL:-gcrypt::file://$TEST_ROOT/secrets-remote}"
   fixture dotfiles/archlinux "$FIXTURE_REPO/dotfiles/archlinux"
   git_init "$FIXTURE_REPO"
+  git_commit_all "$FIXTURE_REPO" "seed public"
 }
 
 setup_booty_secrets() {
@@ -71,6 +72,7 @@ setup_booty_secrets() {
   export FIXTURE_SECRETS="$BOOTY_HOME/booty-secrets"
   fixture dotfiles/secrets/archlinux "$FIXTURE_SECRETS/dotfiles/archlinux"
   git_init "$FIXTURE_SECRETS"
+  git_commit_all "$FIXTURE_SECRETS" "seed secrets"
 }
 
 setup_archlinux() {

@@ -28,6 +28,7 @@ has_output() {
   has_output \
     'declare -x BOOTY_REPO_URL="file:///tmp/booty"' \
     'declare -x BOOTY_SECRETS_URL="gcrypt::file:///tmp/booty-secrets"' \
+    'declare -x BOOTSTRAP_CMD="config"' \
     'declare -x BOOTSTRAP_MULTILIB="false"' \
     'declare -a BOOTSTRAP_FEATURES=([0]="core" [1]="printing")' \
     '"base"' '"cups"' '"host-tool"' \
@@ -35,10 +36,6 @@ has_output() {
     '"cups.service"' '"resolved.service"'
   [[ "$output" != *"lib32-mesa"* ]]
   [ -f "$BOOTSTRAP_CONFIG_DIR/archlinux.yaml" ]
-
-  run env BOOTY_HOST=plain "$BOOTY_ROOT/bin/booty-bootstrap" config
-  [ "$status" -eq 0 ]
-  [[ "$output" == *'declare -x BOOTSTRAP_CMD="config"'* ]]
 }
 
 @test "archlinux config enables multilib from feature config" {

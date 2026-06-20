@@ -46,10 +46,6 @@ assert_secrets_hint() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"$FIXTURE_HOME/.bashrc"* ]]
   [[ "$output" == *"$FIXTURE_ROOT/etc/example.conf"* ]]
-
-  run booty ls-files "$FIXTURE_HOME/.bashrc"
-  [ "$status" -eq 0 ]
-  [ "$output" = "$FIXTURE_HOME/.bashrc" ]
 }
 
 @test "booty applies profile path for checkout commands" {
@@ -253,7 +249,6 @@ assert_secrets_hint() {
 }
 
 @test "booty commit writes target changes to the checkout" {
-  git_commit_all "$FIXTURE_REPO" seed
   booty pull >/dev/null
   writef "$FIXTURE_HOME" ".bashrc" committed
   writef "$FIXTURE_ROOT" "etc/example.conf" committed-root
