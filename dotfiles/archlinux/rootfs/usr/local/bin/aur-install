@@ -4,6 +4,9 @@ set -eo pipefail
 
 log(){ echo "$*" >&2; }
 die(){ log "$*"; exit 1; }
+cleanup(){
+  [ -z "${makepkg_conf:-}" ] || rm -f "$makepkg_conf"
+}
 
 repo_dir="${AUR_REPO_DIR:-$HOME/git/AUR}"
 
@@ -13,6 +16,15 @@ command -v makepkg >/dev/null || die "makepkg is required"
 [ "$#" -gt 0 ] || die "usage: aur-install <package>..."
 
 mkdir -p "$repo_dir"
+
+makepkg_conf="$(mktemp)"
+{
+  printf 'source /etc/makepkg.conf\n'
+  printf 'PACMAN_AUTH=(sudo)\n'
+} > "$makepkg_conf"
+trap cleanup EXIT
+
+sudo -v
 
 for aur in "$@"; do
   case "$aur" in
@@ -28,5 +40,5 @@ for aur in "$@"; do
     git -C "$repo_dir" clone "https://aur.archlinux.org/$aur.git" "$aur"
   fi
 
-  makepkg -D "$aur_dir" -si --noconfirm --needed
+  makepkg --config "$makepkg_conf" -D "$aur_dir" -si --noconfirm --needed
 done
