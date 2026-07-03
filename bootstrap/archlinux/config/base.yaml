@@ -89,11 +89,13 @@ features:
       - iwd.service
   lang:
     pacman:
+      - fnm
       - go
       - nodejs
-      - fnm
-      - python
+      - python-black
+      - python-ruff
       - rustup
+      - uv
   util:
     pacman:
       - atuin
@@ -106,7 +108,6 @@ features:
       - jq
       - ms-edit
       - openbsd-netcat
-      - python-black
       - smartmontools
       - the_silver_searcher
       - vim
