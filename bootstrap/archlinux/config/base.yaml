@@ -46,6 +46,10 @@ features:
       - polkit-gnome
       - warp-terminal
       - wireplumber
+    user_services:
+      - pipewire.socket
+      - pipewire-pulse.socket
+      - wireplumber.service
     aur:
       - visual-studio-code-bin
   xorg:

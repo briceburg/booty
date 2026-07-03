@@ -10,6 +10,7 @@ BOOTSTRAP_FEATURES=()
 BOOTSTRAP_PACMAN=()
 BOOTSTRAP_AUR=()
 BOOTSTRAP_SERVICES=()
+BOOTSTRAP_USER_SERVICES=()
 
 host_config="$BOOTSTRAP_ROOT/config/hosts/$BOOTY_HOST.yaml"
 user_config="$BOOTSTRAP_ROOT/config/users/$BOOTSTRAP_USER.yaml"
@@ -25,6 +26,7 @@ add_yaml BOOTSTRAP_FEATURES .enabled_features
 add_yaml BOOTSTRAP_PACMAN .pacman
 add_yaml BOOTSTRAP_AUR .aur
 add_yaml BOOTSTRAP_SERVICES .services
+add_yaml BOOTSTRAP_USER_SERVICES .user_services
 multilib_packages=()
 add_yaml multilib_packages .multilib
 
@@ -32,6 +34,7 @@ for feature in "${BOOTSTRAP_FEATURES[@]}"; do
   add_yaml BOOTSTRAP_PACMAN ".features.$feature.pacman"
   add_yaml BOOTSTRAP_AUR ".features.$feature.aur"
   add_yaml BOOTSTRAP_SERVICES ".features.$feature.services"
+  add_yaml BOOTSTRAP_USER_SERVICES ".features.$feature.user_services"
   [ "$(yaml "$BOOTSTRAP_CONFIG" ".features.$feature.multilib // \"\"")" = true ] && BOOTSTRAP_MULTILIB=true
 done
 

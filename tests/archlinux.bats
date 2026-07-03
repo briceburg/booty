@@ -33,7 +33,8 @@ has_output() {
     'declare -a BOOTSTRAP_FEATURES=([0]="core" [1]="printing")' \
     '"base"' '"cups"' '"host-tool"' \
     'declare -a BOOTSTRAP_AUR=([0]="yay-bin")' \
-    '"cups.service"' '"resolved.service"'
+    '"cups.service"' '"resolved.service"' \
+    'declare -a BOOTSTRAP_USER_SERVICES=([0]="pipewire.socket")'
   [[ "$output" != *"lib32-mesa"* ]]
   [ -f "$BOOTSTRAP_CONFIG_DIR/archlinux.yaml" ]
 }
