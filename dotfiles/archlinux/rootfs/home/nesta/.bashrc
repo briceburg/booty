@@ -2,7 +2,6 @@
 # booty managed .bashrc
 
 export PATH="$HOME/bin:$HOME/.fly/bin:$PATH"
-export CAPACITOR_ANDROID_STUDIO_PATH="$HOME/android-studio/bin/studio"
 export ANDROID_SDK_ROOT="$HOME/Android/Sdk"
 
 # node fnm (vs nvm)

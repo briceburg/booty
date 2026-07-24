@@ -6,6 +6,7 @@ import XMonad.Layout.NoBorders
 import XMonad.Hooks.EwmhDesktops
 import XMonad.Util.EZConfig (additionalKeysP, checkKeymap)
 import XMonad.ManageHook (className, appName, (=?), (<||>))
+import Data.Char (toLower)
 import Data.List (foldl1')
 
 main = xmonad $ ewmh $ myConfig 
@@ -21,9 +22,14 @@ myConfig = desktopConfig
   }
   `additionalKeysP` myKeys
 
--- Helper to match any of several classNames or appNames
+matchesName :: Query String -> String -> Query Bool
+matchesName property name =
+  fmap (map toLower) property =? map toLower name
+
+-- Helper to match any of several classNames or appNames, case-insensitively
 anyQuery :: [String] -> Query Bool
-anyQuery names = foldl1' (<||>) (map (className =?) names ++ map (appName =?) names)
+anyQuery names =
+  foldl1' (<||>) (map (matchesName className) names ++ map (matchesName appName) names)
 
 runFull :: String -> [String] -> X ()
 runFull command wmClasses =
@@ -54,4 +60,3 @@ myKeys =
   ]
 
 tall = Tall 1 (3/100) (1/2)
-
