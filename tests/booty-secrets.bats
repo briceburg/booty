@@ -7,6 +7,30 @@ teardown() { teardown_tmp; }
 
 secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
+# Help and usage consistently reflect the invoked entrypoint.
+
+@test "help names the invoked command without requiring a checkout" {
+  rm -rf "$FIXTURE_REPO" "$FIXTURE_SECRETS"
+
+  run "$BOOTY_ROOT/bin/booty" --help
+  [ "$status" -eq 0 ]
+  has_output "usage: booty <command> [args]" "Use 'booty-secrets <command>' to manage secret dotfiles."
+
+  run secrets --help
+  [ "$status" -eq 0 ]
+  has_output "usage: booty-secrets <command> [args]" "Use 'booty <command>' to manage public dotfiles."
+  lacks_output "usage: booty <command>"
+
+  run secrets gpg --help
+  [ "$status" -eq 0 ]
+  [ "$output" = "usage: booty-secrets gpg <export|import> [archive.tar.gz.age]" ]
+
+  run env BOOTY_SECRETS=1 PATH=/nonexistent /usr/bin/python3 "$BOOTY_ROOT/bin/booty" gpg unknown
+  [ "$status" -ne 0 ]
+  has_output "usage: booty-secrets gpg <export|import> [archive.tar.gz.age]"
+  lacks_output "age is required"
+}
+
 # Secrets mirror public dotfile behavior but use the secrets checkout only.
 
 @test "booty-secrets pull applies and lists only secret sources" {

@@ -30,25 +30,11 @@ COMMANDS = {
 }
 GIT_COMMANDS = ("branch", "config", "remote", "log", "show", "fetch", "tag", "push")
 COMMAND_ALIASES = {"apply": "apply_dotfiles", "ls-files": "ls"}
-USAGE = "\n".join(
-    (
-        "usage: booty <command> [args]",
-        "",
-        "Commands:",
-        *(f"  {cmd:<8} {description}" for cmd, description in COMMANDS.items()),
-        "",
-        "Git passthrough:",
-        f"  {' '.join(GIT_COMMANDS)}",
-        "",
-        "Use 'booty-secrets <command>' to manage secret dotfiles.",
-    )
-)
 GPG_EXPORTS = {
     "public.asc": ("gpg", "--armor", "--export"),
     "secret.asc": ("gpg", "--armor", "--export-secret-keys"),
     "ownertrust.txt": ("gpg", "--export-ownertrust"),
 }
-GPG_USAGE = "usage: booty gpg <export|import> [archive.tar.gz.age]"
 HELP_COMMANDS = {"help", "-h", "--help"}
 COLOR = (
     os.environ.get("NO_COLOR") is None
@@ -61,6 +47,33 @@ SECTION_STARTED = False
 
 class BootyError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class Cli:
+    name: str
+    counterpart: str
+    counterpart_kind: str
+
+    def usage(self, syntax: str) -> str:
+        return f"usage: {self.name} {syntax}"
+
+    def help(self) -> str:
+        commands = "\n".join(f"  {cmd:<8} {description}" for cmd, description in COMMANDS.items())
+        return (
+            f"{self.usage('<command> [args]')}\n\n"
+            f"Commands:\n{commands}\n\n"
+            f"Git passthrough:\n  {' '.join(GIT_COMMANDS)}\n\n"
+            f"Use '{self.counterpart} <command>' to manage {self.counterpart_kind} dotfiles."
+        )
+
+
+PUBLIC_CLI = Cli("booty", "booty-secrets", "secret")
+SECRETS_CLI = Cli("booty-secrets", "booty", "public")
+
+
+def invoked_cli() -> Cli:
+    return SECRETS_CLI if os.environ.get("BOOTY_SECRETS") else PUBLIC_CLI
 
 
 def paint(message: str, *styles: str) -> str:
@@ -214,7 +227,7 @@ def valid_rel(rel: str, root: Path) -> str:
 class Repo:
     name: str
     path: Path
-    cli_name: str
+    cli: Cli
 
     @property
     def checkout(self) -> bool:
@@ -326,9 +339,9 @@ class App:
         self.gpg_env = {"GNUPGHOME": str(self.gpg_home)}
         self.data_home = Path(os.environ.get("XDG_DATA_HOME") or self.home / ".local/share") / "booty"
         self.tmp_root = self.booty_home / "tmp" / f"booty.{os.getpid()}"
-        self.public = Repo("public", self.booty_home / "booty", "booty")
-        self.secrets = Repo("secrets", self.booty_home / "booty-secrets", "booty-secrets")
-        self.current_repo = self.secrets if os.environ.get("BOOTY_SECRETS") else self.public
+        self.public = Repo("public", self.booty_home / "booty", PUBLIC_CLI)
+        self.secrets = Repo("secrets", self.booty_home / "booty-secrets", SECRETS_CLI)
+        self.current_repo = self.secrets if invoked_cli() == SECRETS_CLI else self.public
         self.applied = AppliedPaths(self.data_home)
         self.areas = tuple(self.build_areas())
         os.environ["BOOTY_HOME"] = str(self.booty_home)
@@ -355,7 +368,7 @@ class App:
         return self.config_hint("BOOTY_SECRETS_URL", verb)
 
     def usage_error(self, syntax: str) -> None:
-        fail(f"usage: {self.current_repo.cli_name} {syntax}")
+        fail(self.current_repo.cli.usage(syntax))
 
     def profile(self) -> str:
         return f"{self.os_name}/{self.host}/{self.user}"
@@ -687,7 +700,7 @@ class App:
                 yield ManagedFile(self.managed_target(area, rel), sources.get(rel))
 
     def guard_live_changes(self, args: list[str], command: str) -> None:
-        tool = self.current_repo.cli_name
+        tool = self.current_repo.cli.name
         if args:
             if args == ["--force"]:
                 return
@@ -726,10 +739,10 @@ class App:
         if live_changes:
             print("Live file changes:")
             print(
-                f'  (use "{repo.cli_name} add <file>..." or "{repo.cli_name} rm <file>..." '
+                f'  (use "{repo.cli.name} add <file>..." or "{repo.cli.name} rm <file>..." '
                 "to update what will be committed)"
             )
-            print(f'  (use "{repo.cli_name} restore <file>..." to discard changes in live files)\n')
+            print(f'  (use "{repo.cli.name} restore <file>..." to discard changes in live files)\n')
             for label, rel in live_changes:
                 print(f"\t{label:<12}{rel}")
             print()
@@ -1059,20 +1072,21 @@ class App:
     def gpg(self, args: list[str]) -> int:
         cmd = args[0] if args else "help"
         archive = logical_path(args[1]) if len(args) > 1 else self.booty_home / "gnupg.tar.gz.age"
+        usage = self.current_repo.cli.usage("gpg <export|import> [archive.tar.gz.age]")
         if len(args) > 2:
-            fail(GPG_USAGE)
+            fail(usage)
         if cmd in HELP_COMMANDS:
-            print(GPG_USAGE)
+            print(usage)
             return 0
+        if cmd not in ("export", "import"):
+            fail(usage)
         if not command_exists("age"):
             fail("age is required")
         with self.tmpdir("gpg-archive") as tmp:
             tmp_root = Path(tmp)
             if cmd == "export":
                 return self.gpg_export(archive, tmp_root)
-            if cmd == "import":
-                return self.gpg_import(archive, tmp_root)
-        fail(GPG_USAGE)
+            return self.gpg_import(archive, tmp_root)
 
     def extract_gpg_archive(self, archive: Path, dest: Path) -> None:
         with tarfile.open(archive) as tar:
@@ -1100,7 +1114,7 @@ class App:
 
 def main(argv: list[str]) -> int:
     if not argv or argv[0] in HELP_COMMANDS:
-        print(USAGE)
+        print(invoked_cli().help())
         return 0
     app = App()
     try:
