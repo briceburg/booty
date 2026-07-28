@@ -136,10 +136,6 @@ def run(
     return proc
 
 
-def command_exists(name: str) -> bool:
-    return shutil.which(name) is not None
-
-
 def is_pattern(value: str) -> bool:
     return any(char in value for char in "*?[")
 
@@ -275,7 +271,10 @@ class SourceFile:
 class ManagedTarget:
     area: Area
     rel: str
-    path: Path
+
+    @property
+    def path(self) -> Path:
+        return self.area.path(self.rel)
 
     def source_for(self, repo: Repo) -> Path:
         return repo.path / self.area.writeback / valid_rel(self.rel, self.area.target)
@@ -362,11 +361,8 @@ class App:
             return "~" if not rel.parts else f"~/{rel}"
         return str(path)
 
-    def config_hint(self, name: str, verb: str = "check") -> str:
-        return f"{verb} {name} in {self.short_path(self.config_file)}"
-
     def secrets_hint(self, verb: str = "check") -> str:
-        return self.config_hint("BOOTY_SECRETS_URL", verb)
+        return f"{verb} BOOTY_SECRETS_URL in {self.short_path(self.config_file)}"
 
     def usage_error(self, syntax: str) -> None:
         fail(self.current_repo.cli.usage(syntax))
@@ -382,31 +378,19 @@ class App:
         dotfiles = Path("dotfiles") / self.os_name
         rootfs = Path("rootfs")
         hostfs = Path("hosts") / self.host / "rootfs"
+        user_home = Path("home") / self.user
         if os.environ.get("BOOTY_SKIP_HOME") != "1" and self.user != "root":
             areas.append(
                 Area(
                     "home",
                     self.home,
-                    dotfiles / rootfs / "home" / self.user,
-                    (
-                        rootfs / "home" / self.user,
-                        hostfs / "home" / self.user,
-                    ),
+                    dotfiles / rootfs / user_home,
+                    (rootfs / user_home, hostfs / user_home),
                 )
             )
         if os.environ.get("BOOTY_SKIP_ROOTFS") != "1":
-            areas.append(
-                Area(
-                    "system",
-                    self.target_root,
-                    dotfiles / hostfs,
-                    (rootfs, hostfs),
-                )
-            )
+            areas.append(Area("system", self.target_root, dotfiles / hostfs, (rootfs, hostfs)))
         return areas
-
-    def managed_target(self, area: Area, rel: str) -> ManagedTarget:
-        return ManagedTarget(area, rel, area.path(rel))
 
     def route(self, path: str) -> ManagedTarget:
         absolute = logical_path(path)
@@ -415,7 +399,7 @@ class App:
             rel = home.rel(absolute)
             if not rel:
                 fail("refusing to manage target root")
-            return ManagedTarget(home, rel, absolute)
+            return ManagedTarget(home, rel)
         if absolute.parts[:2] == ("/", "home"):
             fail(f"refusing to manage another user's home: {absolute}")
         system = next((area for area in self.areas if area.name == "system"), None)
@@ -424,18 +408,15 @@ class App:
         rel = system.rel(absolute)
         if not rel:
             fail("refusing to manage target root")
-        return ManagedTarget(system, rel, absolute)
+        return ManagedTarget(system, rel)
 
     def checked_out_repos(self) -> list[Repo]:
         return [repo for repo in self.repos if repo.checkout]
 
-    def effective_view(self, repos: Sequence[Repo] | None = None) -> ManagedView:
-        return ManagedView(tuple(repos if repos is not None else self.checked_out_repos()))
-
     def command_view(self) -> ManagedView:
         if self.current_repo == self.secrets:
             return ManagedView((self.secrets,), self.secrets)
-        return self.effective_view()
+        return ManagedView(tuple(self.checked_out_repos()))
 
     def needs_sudo(self, area: Area) -> bool:
         return area.live_system and os.geteuid() != 0
@@ -524,7 +505,7 @@ class App:
     def managed_files(self, view: ManagedView) -> Iterable[ManagedFile]:
         for area, sources, applied in self.managed_areas(view):
             for rel in sorted(set(sources) | applied):
-                yield ManagedFile(self.managed_target(area, rel), sources.get(rel))
+                yield ManagedFile(ManagedTarget(area, rel), sources.get(rel))
 
     def select_managed(self, args: list[str], view: ManagedView, *, required: bool = True) -> list[ManagedFile]:
         files = list(self.managed_files(view))
@@ -566,29 +547,14 @@ class App:
             yield target
             return
         if self.needs_sudo(target.area) and not os.access(target.path, os.R_OK | os.X_OK):
-            find = run(
-                [
-                    "sudo",
-                    "find",
-                    str(target.path),
-                    "-mindepth",
-                    "1",
-                    "(",
-                    "-type",
-                    "f",
-                    "-o",
-                    "-type",
-                    "l",
-                    ")",
-                    "-print0",
-                ],
-                capture=True,
-            )
+            find_args = ["sudo", "find", str(target.path), "-mindepth", "1"]
+            find_args += ["(", "-type", "f", "-o", "-type", "l", ")", "-print0"]
+            find = run(find_args, capture=True)
             paths = sorted(Path(os.fsdecode(raw)) for raw in find.stdout.split(b"\0") if raw)
         else:
             paths = sorted(path for path in target.path.rglob("*") if path.is_file() or path.is_symlink())
         for path in paths:
-            yield self.managed_target(target.area, target.area.rel(path))
+            yield ManagedTarget(target.area, target.area.rel(path))
 
     def select_live(self, args: list[str]) -> list[ManagedTarget]:
         selected: dict[tuple[str, str], ManagedTarget] = {}
@@ -618,7 +584,7 @@ class App:
         run(cmd)
 
     def apply_areas(self, repos: Sequence[Repo]) -> None:
-        for area, sources, applied in self.managed_areas(self.effective_view(repos)):
+        for area, sources, applied in self.managed_areas(ManagedView(tuple(repos))):
             if not sources and not applied:
                 for repo in repos:
                     self.applied.write(area, (), repo)
@@ -629,7 +595,7 @@ class App:
                 self.render(sources, render_root)
                 self.copy_tree(render_root, area.target, as_root=self.needs_sudo(area))
             for rel in sorted(applied - set(sources)):
-                self.remove_target(self.managed_target(area, rel))
+                self.remove_target(ManagedTarget(area, rel))
             self.applied.write(area, sources)
             for repo in repos:
                 self.applied.write(area, self.source_index(area, [repo]), repo)
@@ -705,7 +671,7 @@ class App:
                 continue
             sources = self.source_index(area, repos)
             for rel in sorted(self.applied.read(area)):
-                yield ManagedFile(self.managed_target(area, rel), sources.get(rel))
+                yield ManagedFile(ManagedTarget(area, rel), sources.get(rel))
 
     def guard_live_changes(self, args: list[str], command: str) -> None:
         tool = self.current_repo.cli.name
@@ -786,7 +752,7 @@ class App:
                 actual.mkdir()
                 self.render(sources, desired)
                 for rel in rels:
-                    target = self.managed_target(area, rel)
+                    target = ManagedTarget(area, rel)
                     if self.target_exists(target):
                         self.copy_from_target(target, actual / rel)
                 run(
@@ -921,7 +887,7 @@ class App:
             for target_rel, entry in self.source_index(area, repos).items():
                 if entry.repo != repo:
                     continue
-                target = self.managed_target(area, target_rel)
+                target = ManagedTarget(area, target_rel)
                 if self.target_exists(target):
                     self.copy_from_target(target, entry.source)
                     repo.git("add", "--", repo.rel(entry.source))
@@ -979,7 +945,7 @@ class App:
                 )
                 return False
             self.gpg(["import", str(archive)])
-        if not command_exists("git-remote-gcrypt"):
+        if not shutil.which("git-remote-gcrypt"):
             fail("booty sync requires git-remote-gcrypt for secrets checkout")
         return self.ensure_checkout(
             self.secrets,
@@ -1027,7 +993,7 @@ class App:
         return 0
 
     def gpg_ready(self) -> bool:
-        if not command_exists("gpg"):
+        if not shutil.which("gpg"):
             return False
         proc = run(["gpg", "--list-secret-keys", "--with-colons"], env=self.gpg_env, capture=True, check=False)
         return proc.returncode == 0 and b"\nsec" in b"\n" + proc.stdout
@@ -1084,7 +1050,7 @@ class App:
             return 0
         if cmd not in ("export", "import"):
             fail(usage)
-        if not command_exists("age"):
+        if not shutil.which("age"):
             fail("age is required")
         with self.tmpdir("gpg-archive") as tmp:
             tmp_root = Path(tmp)
