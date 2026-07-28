@@ -9,17 +9,12 @@ arch_config() {
   env BOOTY_HOST="${1:-plain}" "$BOOTY_ROOT/bin/booty-bootstrap" config
 }
 
-has_output() {
-  local text
-  for text in "$@"; do [[ "$output" == *"$text"* ]] || return; done
-}
-
 # Config resolution is pure and cheap, so these tests keep bootstrap inputs legible.
 
 @test "archlinux config fails clearly for an unknown host" {
   run arch_config missing-host
   [ "$status" -ne 0 ]
-  [[ "$output" == *"missing host definition"* ]]
+  has_output "missing host definition"
 }
 
 @test "archlinux config resolves bootstrap variables" {
@@ -35,7 +30,7 @@ has_output() {
     'declare -a BOOTSTRAP_AUR=([0]="yay-bin")' \
     '"cups.service"' '"resolved.service"' \
     'declare -a BOOTSTRAP_USER_SERVICES=([0]="pipewire.socket")'
-  [[ "$output" != *"lib32-mesa"* ]]
+  lacks_output "lib32-mesa"
   [ -f "$BOOTSTRAP_CONFIG_DIR/archlinux.yaml" ]
 }
 
@@ -62,11 +57,11 @@ has_output() {
 
   run env BOOTY_REPO_URL=file:///tmp/ad-hoc BOOTY_HOST=plain "$BOOTY_ROOT/bin/booty-bootstrap" config
   [ "$status" -eq 0 ]
-  [[ "$output" == *'declare -x BOOTY_REPO_URL="file:///tmp/ad-hoc"'* ]]
+  has_output 'declare -x BOOTY_REPO_URL="file:///tmp/ad-hoc"'
 
   run env BOOTY_HOST=plain "$BOOTY_ROOT/bin/booty-bootstrap" config
   [ "$status" -ne 0 ]
-  [[ "$output" == *"missing BOOTY_REPO_URL or repo_url"* ]]
+  has_output "missing BOOTY_REPO_URL or repo_url"
 }
 
 @test "archlinux config refuses symlinked config paths" {
@@ -75,7 +70,7 @@ has_output() {
 
   run arch_config plain
   [ "$status" -ne 0 ]
-  [[ "$output" == *"refusing symlinked bootstrap config dir"* ]]
+  has_output "refusing symlinked bootstrap config dir"
 
   rm -rf "$BOOTSTRAP_CONFIG_DIR"
   mkdir -p "$BOOTSTRAP_CONFIG_DIR"
@@ -83,7 +78,7 @@ has_output() {
 
   run env -u BOOTSTRAP_USER BOOTY_HOST=plain "$BOOTY_ROOT/bin/booty-bootstrap" config
   [ "$status" -ne 0 ]
-  [[ "$output" == *"refusing symlinked bootstrap config file"* ]]
+  has_output "refusing symlinked bootstrap config file"
 }
 
 @test "archlinux config preserves existing merge output when yq fails" {

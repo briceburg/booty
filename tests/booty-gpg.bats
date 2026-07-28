@@ -41,7 +41,7 @@ gpg_archive() {
 
   run gpg_archive export "$GNUPGHOME"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"wrote GPG archive: $archive"* ]]
+  has_output "wrote GPG archive: $archive"
   [ -s "$archive" ]
   [ "$(stat -c %a "$BOOTY_HOME/tmp")" = 700 ]
   [ -z "$(find "$BOOTY_HOME/tmp" -mindepth 1 -maxdepth 1 -print -quit)" ]
@@ -51,6 +51,6 @@ gpg_archive() {
 
   run gpg_archive import "$restored/.gnupg"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"imported GPG archive: $archive -> $restored/.gnupg"* ]]
+  has_output "imported GPG archive: $archive -> $restored/.gnupg"
   GNUPGHOME="$restored/.gnupg" gpg --list-secret-keys --with-colons | grep -q '^sec'
 }
