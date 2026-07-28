@@ -111,6 +111,28 @@ assert_secrets_hint() {
   file_eq "$FIXTURE_HOME/.private" secrets-bootstrap
 }
 
+@test "booty sync and pull refuse to overwrite live changes unless forced" {
+  booty pull >/dev/null
+  writef "$FIXTURE_HOME" ".bashrc" unsaved
+  : > "$BOOTY_HOME/config"
+
+  run booty sync
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"refusing to overwrite live changes"* ]]
+  [[ "$output" == *"modified:  ~/.bashrc"* ]]
+  [[ "$output" == *"booty sync --force"* ]]
+  file_eq "$FIXTURE_HOME/.bashrc" unsaved
+
+  run booty pull
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"booty pull --force"* ]]
+  file_eq "$FIXTURE_HOME/.bashrc" unsaved
+
+  run booty sync --force
+  [ "$status" -eq 0 ]
+  file_eq "$FIXTURE_HOME/.bashrc" shell
+}
+
 @test "booty sync retargets an existing public checkout remote" {
   old_remote="$TEST_ROOT/old-public"
   new_remote="$TEST_ROOT/new-public"

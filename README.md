@@ -25,6 +25,8 @@ booty sync
 
 `booty sync` clones or updates `BOOTY_REPO_URL` at `~/.booty/booty`, _optionally_ syncs `BOOTY_SECRETS_URL` at `~/.booty/booty-secrets`, then applies public dotfiles overlaid by secrets when available.
 
+`booty sync` and `booty pull` refuse to overwrite changes to previously applied live files. Save them with the appropriate `booty` or `booty-secrets` command, or explicitly discard them with `booty sync --force` or `booty pull --force`.
+
 `booty sync` runs during [booty-bootstrap](#bootstrap). Re-run whenever dotfile or secrets URLs change.
 
 Unless set in the environment, `BOOTY_REPO_URL` and `BOOTY_SECRETS_URL` are read from `~/.booty/config`. [Bootstrap](#bootstrap) writes this file from resolved user config, e.g. [config/users/nesta.yaml](./bootstrap/archlinux/config/users/nesta.yaml).
