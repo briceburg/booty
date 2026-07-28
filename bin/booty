@@ -618,8 +618,9 @@ class App:
         ok("dotfiles applied")
         return 0
 
-    def pull(self, _args: list[str]) -> int:
+    def pull(self, args: list[str]) -> int:
         repo = self.require_current_repo()
+        self.guard_live_changes(args, "pull")
         section(f"{repo.name} checkout")
         self.pull_repo(repo)
         section("apply dotfiles")
@@ -666,6 +667,41 @@ class App:
             return True
         return run(["sudo", "cmp", "-s", str(desired), str(actual)], check=False).returncode != 0
 
+    def live_change(self, file: ManagedFile) -> str | None:
+        target, source = file.target, file.source
+        if not source:
+            return "added:" if self.target_exists(target) else None
+        if not self.target_exists(target):
+            return "deleted:"
+        return "modified:" if self.target_changed(target, source.source) else None
+
+    def applied_files(self) -> Iterable[ManagedFile]:
+        repos = self.checked_out_repos()
+        for area in self.areas:
+            if not self.applied.path(area).is_file():
+                continue
+            sources = self.source_index(area, repos)
+            for rel in sorted(self.applied.read(area)):
+                yield ManagedFile(self.managed_target(area, rel), sources.get(rel))
+
+    def guard_live_changes(self, args: list[str], command: str) -> None:
+        tool = "booty-secrets" if self.current_repo == self.secrets else "booty"
+        if args:
+            if args == ["--force"]:
+                return
+            fail(f"usage: {tool} {command} [--force]")
+        changes = [
+            (label, file.target) for file in self.applied_files() if (label := self.live_change(file)) is not None
+        ]
+        if not changes:
+            return
+        details = "\n".join(f"  {label:<10} {self.short_path(target.path)}" for label, target in changes)
+        fail(
+            f"refusing to overwrite live changes:\n{details}\n"
+            "review them with 'booty status' and 'booty-secrets status', "
+            f"or rerun '{tool} {command} --force' to discard them"
+        )
+
     def status(self, args: list[str]) -> int:
         repo = self.require_current_repo()
         self.warn_empty_secrets()
@@ -673,14 +709,8 @@ class App:
         live_changes = []
         files = [file for file in self.select_managed(args, view) if file.source is None or file.source.repo == repo]
         for file in files:
-            target, source = file.target, file.source
-            if source:
-                if not self.target_exists(target):
-                    live_changes.append(("deleted:", target.rel))
-                elif self.target_changed(target, source.source):
-                    live_changes.append(("modified:", target.rel))
-            elif self.target_exists(target):
-                live_changes.append(("added:", target.rel))
+            if label := self.live_change(file):
+                live_changes.append((label, file.target.rel))
         if args:
             paths = [repo.rel(file.source.source) for file in files if file.source and file.source.repo == repo]
             checkout_changes = (
@@ -937,7 +967,8 @@ class App:
             hint=self.secrets_hint(),
         )
 
-    def sync(self, _args: list[str]) -> int:
+    def sync(self, args: list[str]) -> int:
+        self.guard_live_changes(args, "sync")
         self.booty_home.mkdir(parents=True, exist_ok=True)
         section("public checkout")
         public_existed = self.public.checkout

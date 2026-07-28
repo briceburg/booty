@@ -74,6 +74,18 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
   [[ "$output" == *"modified:   .aws/config"* ]]
 }
 
+@test "public sync refuses to overwrite secrets-owned live changes" {
+  writef "$FIXTURE_SECRETS" "dotfiles/archlinux/rootfs/home/nesta/.aws/config" secret
+  secrets pull >/dev/null
+  writef "$FIXTURE_HOME" ".aws/config" unsaved-secret
+
+  run "$BOOTY_ROOT/bin/booty" sync
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"refusing to overwrite live changes"* ]]
+  [[ "$output" == *"modified:  ~/.aws/config"* ]]
+  file_eq "$FIXTURE_HOME/.aws/config" unsaved-secret
+}
+
 @test "booty-secrets status handles legacy combined applied state" {
   secrets pull >/dev/null
   rm "$FIXTURE_STATE/booty/secrets.home.paths" "$FIXTURE_STATE/booty/secrets.system.paths"
