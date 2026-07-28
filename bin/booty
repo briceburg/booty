@@ -214,6 +214,7 @@ def valid_rel(rel: str, root: Path) -> str:
 class Repo:
     name: str
     path: Path
+    cli_name: str
 
     @property
     def checkout(self) -> bool:
@@ -325,8 +326,8 @@ class App:
         self.gpg_env = {"GNUPGHOME": str(self.gpg_home)}
         self.data_home = Path(os.environ.get("XDG_DATA_HOME") or self.home / ".local/share") / "booty"
         self.tmp_root = self.booty_home / "tmp" / f"booty.{os.getpid()}"
-        self.public = Repo("public", self.booty_home / "booty")
-        self.secrets = Repo("secrets", self.booty_home / "booty-secrets")
+        self.public = Repo("public", self.booty_home / "booty", "booty")
+        self.secrets = Repo("secrets", self.booty_home / "booty-secrets", "booty-secrets")
         self.current_repo = self.secrets if os.environ.get("BOOTY_SECRETS") else self.public
         self.applied = AppliedPaths(self.data_home)
         self.areas = tuple(self.build_areas())
@@ -352,6 +353,9 @@ class App:
 
     def secrets_hint(self, verb: str = "check") -> str:
         return self.config_hint("BOOTY_SECRETS_URL", verb)
+
+    def usage_error(self, syntax: str) -> None:
+        fail(f"usage: {self.current_repo.cli_name} {syntax}")
 
     def profile(self) -> str:
         return f"{self.os_name}/{self.host}/{self.user}"
@@ -454,7 +458,7 @@ class App:
     def require_dotfiles(self, repo: Repo) -> None:
         if not self.has_dotfiles(repo):
             fail(
-                f"{repo.name} checkout has no dotfiles for {self.os_name}/{self.host}/{self.user} "
+                f"{repo.name} checkout has no dotfiles for {self.profile()} "
                 f"in {self.dotfiles(repo)}; see README.md#dotfiles-repository-layout"
             )
 
@@ -466,12 +470,12 @@ class App:
         for rel, source in sources.items():
             copy_leaf(source.source, root / rel)
 
-    def managed_areas(self, view: ManagedView):
+    def managed_areas(self, view: ManagedView) -> Iterable[tuple[Area, dict[str, SourceFile], set[str]]]:
         for area in self.areas:
             sources = self.source_index(area, view.repos)
             state = self.applied.path(area, view.state_repo)
-            old = self.applied.read(area, view.state_repo) if state.is_file() else set(sources)
-            yield area, sources, old, set(sources)
+            applied = self.applied.read(area, view.state_repo) if state.is_file() else set(sources)
+            yield area, sources, applied
 
     def update_applied(self, target: ManagedTarget, present: bool, repo: Repo | None = None) -> None:
         state = self.applied.path(target.area, repo)
@@ -497,8 +501,8 @@ class App:
         self.update_applied(target, source is not None)
 
     def managed_files(self, view: ManagedView) -> Iterable[ManagedFile]:
-        for area, sources, old, desired_rels in self.managed_areas(view):
-            for rel in sorted(desired_rels | old):
+        for area, sources, applied in self.managed_areas(view):
+            for rel in sorted(set(sources) | applied):
                 yield ManagedFile(self.managed_target(area, rel), sources.get(rel))
 
     def select_managed(self, args: list[str], view: ManagedView, *, required: bool = True) -> list[ManagedFile]:
@@ -593,8 +597,8 @@ class App:
         run(cmd)
 
     def apply_areas(self, repos: Sequence[Repo]) -> None:
-        for area, sources, old, desired_rels in self.managed_areas(self.effective_view(repos)):
-            if not sources and not old:
+        for area, sources, applied in self.managed_areas(self.effective_view(repos)):
+            if not sources and not applied:
                 for repo in repos:
                     self.applied.write(area, (), repo)
                 continue
@@ -603,15 +607,15 @@ class App:
                 render_root = Path(tmp)
                 self.render(sources, render_root)
                 self.copy_tree(render_root, area.target, as_root=self.needs_sudo(area))
-            for rel in sorted(old - desired_rels):
+            for rel in sorted(applied - set(sources)):
                 self.remove_target(self.managed_target(area, rel))
-            self.applied.write(area, desired_rels)
+            self.applied.write(area, sources)
             for repo in repos:
                 self.applied.write(area, self.source_index(area, [repo]), repo)
 
     def apply_dotfiles(self, args: list[str]) -> int:
         if args:
-            fail("usage: booty apply")
+            self.usage_error("apply")
         self.require_current_repo()
         section("apply dotfiles")
         self.apply_areas(self.checked_out_repos())
@@ -646,12 +650,10 @@ class App:
             run(["sudo", "test", flag, str(target.path)], check=False).returncode == 0 for flag in ("-e", "-L")
         )
 
-    def target_changed(self, target: ManagedTarget, desired: Path) -> bool:
+    def existing_target_changed(self, target: ManagedTarget, desired: Path) -> bool:
         area, actual = target.area, target.path
         if not self.needs_sudo(area):
             return self.file_changed(desired, actual)
-        if not self.target_exists(target):
-            return True
         if exists(actual):
             try:
                 return self.file_changed(desired, actual)
@@ -673,7 +675,7 @@ class App:
             return "added:" if self.target_exists(target) else None
         if not self.target_exists(target):
             return "deleted:"
-        return "modified:" if self.target_changed(target, source.source) else None
+        return "modified:" if self.existing_target_changed(target, source.source) else None
 
     def applied_files(self) -> Iterable[ManagedFile]:
         repos = self.checked_out_repos()
@@ -685,11 +687,11 @@ class App:
                 yield ManagedFile(self.managed_target(area, rel), sources.get(rel))
 
     def guard_live_changes(self, args: list[str], command: str) -> None:
-        tool = "booty-secrets" if self.current_repo == self.secrets else "booty"
+        tool = self.current_repo.cli_name
         if args:
             if args == ["--force"]:
                 return
-            fail(f"usage: {tool} {command} [--force]")
+            self.usage_error(f"{command} [--force]")
         changes = [
             (label, file.target) for file in self.applied_files() if (label := self.live_change(file)) is not None
         ]
@@ -702,30 +704,32 @@ class App:
             f"or rerun '{tool} {command} --force' to discard them"
         )
 
+    def checkout_changes(self, repo: Repo, files: Sequence[ManagedFile], scoped: bool) -> list[str]:
+        git_args = ["status", "--short"]
+        if scoped:
+            paths = [repo.rel(file.source.source) for file in files if file.source]
+            if not paths:
+                return []
+            git_args.extend(("--", *paths))
+        return repo.git(*git_args, capture=True).stdout.decode().splitlines()
+
     def status(self, args: list[str]) -> int:
         repo = self.require_current_repo()
         self.warn_empty_secrets()
         view = ManagedView(self.command_view().repos, repo)
-        live_changes = []
         files = [file for file in self.select_managed(args, view) if file.source is None or file.source.repo == repo]
-        for file in files:
-            if label := self.live_change(file):
-                live_changes.append((label, file.target.rel))
-        if args:
-            paths = [repo.rel(file.source.source) for file in files if file.source and file.source.repo == repo]
-            checkout_changes = (
-                repo.git("status", "--short", "--", *paths, capture=True).stdout.decode().splitlines() if paths else []
-            )
-        else:
-            checkout_changes = repo.git("status", "--short", capture=True).stdout.decode().splitlines()
+        live_changes = [(label, file.target.rel) for file in files if (label := self.live_change(file)) is not None]
+        checkout_changes = self.checkout_changes(repo, files, bool(args))
         branch = repo.git("branch", "--show-current", capture=True, stderr=subprocess.DEVNULL).stdout.decode().strip()
         if branch:
             print(f"On branch {branch}\n")
         if live_changes:
             print("Live file changes:")
-            command = "booty-secrets" if repo == self.secrets else "booty"
-            print(f'  (use "{command} add <file>..." or "{command} rm <file>..." to update what will be committed)')
-            print(f'  (use "{command} restore <file>..." to discard changes in live files)\n')
+            print(
+                f'  (use "{repo.cli_name} add <file>..." or "{repo.cli_name} rm <file>..." '
+                "to update what will be committed)"
+            )
+            print(f'  (use "{repo.cli_name} restore <file>..." to discard changes in live files)\n')
             for label, rel in live_changes:
                 print(f"\t{label:<12}{rel}")
             print()
@@ -807,7 +811,7 @@ class App:
 
     def add(self, args: list[str]) -> int:
         if not args:
-            fail("usage: booty add <pathspec>...")
+            self.usage_error("add <pathspec>...")
         repo = self.require_current_repo()
         targets = self.select_live(args)
         deleted = [
@@ -829,7 +833,7 @@ class App:
 
     def restore(self, args: list[str]) -> int:
         if not args:
-            fail("usage: booty restore <pathspec>...")
+            self.usage_error("restore <pathspec>...")
         repo = self.require_current_repo()
         for file in self.select_managed(args, self.command_view()):
             if file.source:
@@ -850,7 +854,7 @@ class App:
 
     def rm(self, args: list[str]) -> int:
         if not args:
-            fail("usage: booty rm <pathspec>...")
+            self.usage_error("rm <pathspec>...")
         repo = self.require_current_repo()
         files = self.select_managed(args, self.command_view())
         for file in files:
@@ -872,7 +876,7 @@ class App:
 
     def mv(self, args: list[str]) -> int:
         if len(args) != 2:
-            fail("usage: booty mv <src> <dst>")
+            self.usage_error("mv <src> <dst>")
         repo = self.require_current_repo()
         src = self.route(args[0])
         dst = self.route(args[1])
@@ -1011,6 +1015,47 @@ class App:
         proc = run(["gpg", "--list-secret-keys", "--with-colons"], env=self.gpg_env, capture=True, check=False)
         return proc.returncode == 0 and b"\nsec" in b"\n" + proc.stdout
 
+    def gpg_export(self, archive: Path, tmp_root: Path) -> int:
+        if not self.gpg_ready():
+            fail(f"no GPG secret key found in {self.gpg_home}")
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        for name, gpg_args in GPG_EXPORTS.items():
+            (tmp_root / name).write_bytes(run(gpg_args, env=self.gpg_env, capture=True).stdout)
+        tar_path = tmp_root / "gnupg.tar.gz"
+        with tarfile.open(tar_path, "w:gz") as tar:
+            for name in GPG_EXPORTS:
+                tar.add(tmp_root / name, arcname=name)
+        age_args = ["age"]
+        if identity := os.environ.get("BOOTY_AGE_IDENTITY"):
+            recipient = run(["age-keygen", "-y", identity], capture=True).stdout.decode().strip()
+            age_args += ["-r", recipient]
+        else:
+            age_args += ["-p"]
+        run([*age_args, "-o", str(archive), str(tar_path)])
+        print(f"wrote GPG archive: {archive}")
+        return 0
+
+    def gpg_import(self, archive: Path, tmp_root: Path) -> int:
+        if not archive.is_file():
+            fail(f"missing archive: {archive}")
+        tar_path = tmp_root / "gnupg.tar.gz"
+        age_args = ["age", "-d"]
+        if identity := os.environ.get("BOOTY_AGE_IDENTITY"):
+            age_args += ["-i", identity]
+        run([*age_args, "-o", str(tar_path), str(archive)])
+        self.extract_gpg_archive(tar_path, tmp_root)
+        self.gpg_home.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.gpg_home, 0o700)
+        run(["gpg", "--import", str(tmp_root / "public.asc")], env=self.gpg_env)
+        run(["gpg", "--import", str(tmp_root / "secret.asc")], env=self.gpg_env)
+        ownertrust = tmp_root / "ownertrust.txt"
+        if ownertrust.stat().st_size:
+            run(["gpg", "--import-ownertrust", str(ownertrust)], env=self.gpg_env)
+        if not self.gpg_ready():
+            fail("GPG import did not restore a secret key")
+        print(f"imported GPG archive: {archive} -> {self.gpg_home}")
+        return 0
+
     def gpg(self, args: list[str]) -> int:
         cmd = args[0] if args else "help"
         archive = logical_path(args[1]) if len(args) > 1 else self.booty_home / "gnupg.tar.gz.age"
@@ -1024,44 +1069,9 @@ class App:
         with self.tmpdir("gpg-archive") as tmp:
             tmp_root = Path(tmp)
             if cmd == "export":
-                if not self.gpg_ready():
-                    fail(f"no GPG secret key found in {self.gpg_home}")
-                archive.parent.mkdir(parents=True, exist_ok=True)
-                for name, gpg_args in GPG_EXPORTS.items():
-                    (tmp_root / name).write_bytes(run(gpg_args, env=self.gpg_env, capture=True).stdout)
-                tar_path = tmp_root / "gnupg.tar.gz"
-                with tarfile.open(tar_path, "w:gz") as tar:
-                    for name in GPG_EXPORTS:
-                        tar.add(tmp_root / name, arcname=name)
-                age_args = ["age"]
-                if identity := os.environ.get("BOOTY_AGE_IDENTITY"):
-                    recipient = run(["age-keygen", "-y", identity], capture=True).stdout.decode().strip()
-                    age_args += ["-r", recipient]
-                else:
-                    age_args += ["-p"]
-                run([*age_args, "-o", str(archive), str(tar_path)])
-                print(f"wrote GPG archive: {archive}")
-                return 0
+                return self.gpg_export(archive, tmp_root)
             if cmd == "import":
-                if not archive.is_file():
-                    fail(f"missing archive: {archive}")
-                tar_path = tmp_root / "gnupg.tar.gz"
-                age_args = ["age", "-d"]
-                if identity := os.environ.get("BOOTY_AGE_IDENTITY"):
-                    age_args += ["-i", identity]
-                run([*age_args, "-o", str(tar_path), str(archive)])
-                self.extract_gpg_archive(tar_path, tmp_root)
-                self.gpg_home.mkdir(parents=True, exist_ok=True)
-                os.chmod(self.gpg_home, 0o700)
-                run(["gpg", "--import", str(tmp_root / "public.asc")], env=self.gpg_env)
-                run(["gpg", "--import", str(tmp_root / "secret.asc")], env=self.gpg_env)
-                ownertrust = tmp_root / "ownertrust.txt"
-                if ownertrust.stat().st_size:
-                    run(["gpg", "--import-ownertrust", str(ownertrust)], env=self.gpg_env)
-                if not self.gpg_ready():
-                    fail("GPG import did not restore a secret key")
-                print(f"imported GPG archive: {archive} -> {self.gpg_home}")
-                return 0
+                return self.gpg_import(archive, tmp_root)
         fail(GPG_USAGE)
 
     def extract_gpg_archive(self, archive: Path, dest: Path) -> None:

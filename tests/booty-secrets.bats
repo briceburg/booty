@@ -20,10 +20,8 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run secrets ls
   [ "$status" -eq 0 ]
-  [[ "$output" == *".config/app.conf"* ]]
-  [[ "$output" == *"/etc/secret.conf"* ]]
-  [[ "$output" != *".bashrc"* ]]
-  [[ "$output" != *"/etc/example.conf"* ]]
+  has_output ".config/app.conf" "/etc/secret.conf"
+  lacks_output ".bashrc" "/etc/example.conf"
 }
 
 @test "booty-secrets warns when checkout has no dotfiles" {
@@ -31,10 +29,10 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run secrets ls
   [ "$status" -eq 0 ]
-  [[ "$output" == *"WARNING: no secrets for archlinux/hartford/nesta"* ]]
-  [[ "$output" == *"check BOOTY_SECRETS_URL in ~/.booty/config"* ]]
-  [[ "$output" != *".bashrc"* ]]
-  [[ "$output" != *"/etc/example.conf"* ]]
+  has_output \
+    "WARNING: no secrets for archlinux/hartford/nesta" \
+    "check BOOTY_SECRETS_URL in ~/.booty/config"
+  lacks_output ".bashrc" "/etc/example.conf"
 }
 
 @test "booty-secrets add stages secrets without reporting public drift" {
@@ -48,11 +46,8 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run secrets status
   [ "$status" -eq 0 ]
-  [[ "$output" != *"Live file changes:"* ]]
-  [[ "$output" == *"Repo changes:"* ]]
-  [[ "$output" == *"A  dotfiles/archlinux/rootfs/home/nesta/.private"* ]]
-  [[ "$output" != *".bashrc"* ]]
-  [[ "$output" != *"etc/example.conf"* ]]
+  has_output "Repo changes:" "A  dotfiles/archlinux/rootfs/home/nesta/.private"
+  lacks_output "Live file changes:" ".bashrc" "etc/example.conf"
 
   run secrets diff
   [ "$status" -eq 0 ]
@@ -66,12 +61,12 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run "$BOOTY_ROOT/bin/booty" status
   [ "$status" -eq 0 ]
-  [[ "$output" == *"nothing to commit, managed files clean"* ]]
-  [[ "$output" != *".aws/config"* ]]
+  has_output "nothing to commit, managed files clean"
+  lacks_output ".aws/config"
 
   run secrets status
   [ "$status" -ne 0 ]
-  [[ "$output" == *"modified:   .aws/config"* ]]
+  has_output "modified:   .aws/config"
 }
 
 @test "public sync refuses to overwrite secrets-owned live changes" {
@@ -81,8 +76,7 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -ne 0 ]
-  [[ "$output" == *"refusing to overwrite live changes"* ]]
-  [[ "$output" == *"modified:  ~/.aws/config"* ]]
+  has_output "refusing to overwrite live changes" "modified:  ~/.aws/config"
   file_eq "$FIXTURE_HOME/.aws/config" unsaved-secret
 }
 
@@ -92,8 +86,8 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run secrets status
   [ "$status" -eq 0 ]
-  [[ "$output" == *"nothing to commit, managed files clean"* ]]
-  [[ "$output" != *"Live file changes:"* ]]
+  has_output "nothing to commit, managed files clean"
+  lacks_output "Live file changes:"
 }
 
 @test "booty-secrets restore cannot remove a public managed file" {
@@ -101,7 +95,7 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run secrets restore "$FIXTURE_HOME/.bashrc"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"did not match any managed files"* ]]
+  has_output "did not match any managed files"
   file_eq "$FIXTURE_HOME/.bashrc" shell
 }
 
@@ -114,9 +108,10 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run secrets status "$FIXTURE_HOME/.config/app.conf"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"Live file changes:"* ]]
-  [[ "$output" == *"added:      .config/app.conf"* ]]
-  [[ "$output" == *'use "booty-secrets restore <file>..."'* ]]
+  has_output \
+    "Live file changes:" \
+    "added:      .config/app.conf" \
+    'use "booty-secrets restore <file>..."'
 
   run secrets restore "$FIXTURE_HOME/.config/app.conf"
   [ "$status" -eq 0 ]
@@ -147,8 +142,14 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run secrets status
   [ "$status" -ne 0 ]
-  [[ "$output" == *"missing secrets checkout"* ]]
-  [[ "$output" == *"booty sync"* ]]
+  has_output "missing secrets checkout" "booty sync"
+}
+
+@test "booty-secrets usage errors name the invoked command" {
+  run secrets mv "$FIXTURE_HOME/.private"
+  [ "$status" -ne 0 ]
+  has_output "usage: booty-secrets mv <src> <dst>"
+  lacks_output "usage: booty mv"
 }
 
 @test "booty-secrets honors explicit BOOTY_HOME" {

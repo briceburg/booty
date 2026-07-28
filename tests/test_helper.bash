@@ -9,6 +9,20 @@ setup_tmp() {
 teardown_tmp() { rm -rf "${TEST_ROOT:-}"; }
 file_eq() { [ "$(cat "$1")" = "$2" ]; }
 
+has_output() {
+  local text
+  for text in "$@"; do
+    [[ "$output" == *"$text"* ]] || { echo "missing output: $text" >&2; return 1; }
+  done
+}
+
+lacks_output() {
+  local text
+  for text in "$@"; do
+    [[ "$output" != *"$text"* ]] || { echo "unexpected output: $text" >&2; return 1; }
+  done
+}
+
 fixture() {
   mkdir -p "$2"
   cp -R "$TEST_REPO/tests/fixtures/$1/." "$2/"

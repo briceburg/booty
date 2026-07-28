@@ -25,7 +25,7 @@ sync_secrets_url() {
 }
 
 assert_secrets_hint() {
-  [[ "$output" == *"check BOOTY_SECRETS_URL in ~/.booty/config"* ]]
+  has_output "check BOOTY_SECRETS_URL in ~/.booty/config"
 }
 
 # Apply from an existing checkout.
@@ -44,8 +44,7 @@ assert_secrets_hint() {
 
   run booty ls
   [ "$status" -eq 0 ]
-  [[ "$output" == *"$FIXTURE_HOME/.bashrc"* ]]
-  [[ "$output" == *"$FIXTURE_ROOT/etc/example.conf"* ]]
+  has_output "$FIXTURE_HOME/.bashrc" "$FIXTURE_ROOT/etc/example.conf"
 }
 
 @test "booty applies profile path for checkout commands" {
@@ -118,14 +117,12 @@ assert_secrets_hint() {
 
   run booty sync
   [ "$status" -ne 0 ]
-  [[ "$output" == *"refusing to overwrite live changes"* ]]
-  [[ "$output" == *"modified:  ~/.bashrc"* ]]
-  [[ "$output" == *"booty sync --force"* ]]
+  has_output "refusing to overwrite live changes" "modified:  ~/.bashrc" "booty sync --force"
   file_eq "$FIXTURE_HOME/.bashrc" unsaved
 
   run booty pull
   [ "$status" -ne 0 ]
-  [[ "$output" == *"booty pull --force"* ]]
+  has_output "booty pull --force"
   file_eq "$FIXTURE_HOME/.bashrc" unsaved
 
   run booty sync --force
@@ -162,8 +159,7 @@ assert_secrets_hint() {
 
   run env BOOTY_REPO_URL="file://$public_remote" BOOTY_SECRETS_URL= "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -ne 0 ]
-  [[ "$output" == *"public checkout has no dotfiles"* ]]
-  [[ "$output" == *"README.md#dotfiles-repository-layout"* ]]
+  has_output "public checkout has no dotfiles" "README.md#dotfiles-repository-layout"
 }
 
 @test "booty sync skips secrets checkout when gpg is unconfigured" {
@@ -172,7 +168,7 @@ assert_secrets_hint() {
 
   run env BOOTY_REPO_URL= BOOTY_SECRETS_URL="gcrypt::file://$TEST_ROOT/secrets-remote" "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -eq 0 ]
-  [[ "$output" == *"skipping secrets checkout"* ]]
+  has_output "skipping secrets checkout"
   assert_secrets_hint
   [ ! -e "$BOOTY_HOME/booty-secrets" ]
 }
@@ -186,7 +182,7 @@ assert_secrets_hint() {
 
   sync_secrets_url "gcrypt::file://$secrets_remote"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"WARNING: no secrets for archlinux/hartford/nesta"* ]]
+  has_output "WARNING: no secrets for archlinux/hartford/nesta"
   assert_secrets_hint
 }
 
@@ -195,7 +191,7 @@ assert_secrets_hint() {
 
   sync_secrets_url "gcrypt::file://$TEST_ROOT/missing-secrets"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"WARNING: could not clone secrets checkout"* ]]
+  has_output "WARNING: could not clone secrets checkout"
   assert_secrets_hint
   file_eq "$FIXTURE_HOME/.bashrc" shell
 }
@@ -208,7 +204,7 @@ assert_secrets_hint() {
 
   sync_secrets_url "gcrypt::file://$TEST_ROOT/missing-secrets"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"WARNING: could not update secrets checkout; using existing copy"* ]]
+  has_output "WARNING: could not update secrets checkout; using existing copy"
   assert_secrets_hint
   file_eq "$FIXTURE_ROOT/etc/secret.conf" secrets-root
 }
@@ -221,9 +217,9 @@ assert_secrets_hint() {
 
   sync_secrets_url "gcrypt::file://$TEST_ROOT/missing-secrets"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"WARNING: secrets checkout unavailable; using public dotfiles only"* ]]
+  has_output "WARNING: secrets checkout unavailable; using public dotfiles only"
   assert_secrets_hint
-  [[ "$output" != *"WARNING: no secrets for archlinux/hartford/nesta"* ]]
+  lacks_output "WARNING: no secrets for archlinux/hartford/nesta"
   file_eq "$FIXTURE_HOME/.bashrc" shell
 }
 
@@ -232,8 +228,7 @@ assert_secrets_hint() {
 
   run env BOOTY_REPO_URL= BOOTY_SECRETS_URL="$TEST_ROOT/plain-remote" "$BOOTY_ROOT/bin/booty" sync
   [ "$status" -ne 0 ]
-  [[ "$output" == *"BOOTY_SECRETS_URL must use gcrypt::"* ]]
-  [[ "$output" == *"~/.booty/config"* ]]
+  has_output "BOOTY_SECRETS_URL must use gcrypt::" "~/.booty/config"
 }
 
 # Git-facing commands operate on rendered dotfiles, not arbitrary worktrees.
@@ -253,21 +248,19 @@ assert_secrets_hint() {
 
   run booty status "$FIXTURE_ROOT/etc"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"Live file changes:"* ]]
-  [[ "$output" == *"modified:   etc/example.conf"* ]]
-  [[ "$output" != *".bashrc"* ]]
+  has_output "Live file changes:" "modified:   etc/example.conf"
+  lacks_output ".bashrc"
 
   run booty diff "$FIXTURE_ROOT/etc"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"diff --git booty/etc/example.conf target/etc/example.conf"* ]]
-  [[ "$output" == *"+changed"* ]]
-  [[ "$output" != *"changed-home"* ]]
+  has_output "diff --git booty/etc/example.conf target/etc/example.conf" "+changed"
+  lacks_output "changed-home"
 
   rm "$FIXTURE_ROOT/etc/example.conf"
   mkdir "$FIXTURE_ROOT/etc/example.conf"
   run booty status
   [ "$status" -ne 0 ]
-  [[ "$output" == *"modified:   etc/example.conf"* ]]
+  has_output "modified:   etc/example.conf"
 }
 
 @test "booty commit writes target changes to the checkout" {
@@ -369,7 +362,7 @@ assert_secrets_hint() {
 @test "booty refuses another user's home path" {
   run booty add /home/foo/.bashrc
   [ "$status" -ne 0 ]
-  [[ "$output" == *"refusing to manage another user's home"* ]]
+  has_output "refusing to manage another user's home"
 }
 
 @test "booty rejects simulated rootfs paths outside the target" {
@@ -378,16 +371,16 @@ assert_secrets_hint() {
 
   run booty add "$FIXTURE_ROOT"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"target root"* ]]
+  has_output "target root"
 
   run booty mv "$FIXTURE_HOME/to-rootfs.conf" "$FIXTURE_ROOT/../outside.conf"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"outside $FIXTURE_ROOT"* ]]
+  has_output "outside $FIXTURE_ROOT"
   file_eq "$FIXTURE_HOME/to-rootfs.conf" home-to-rootfs
 
   run booty mv "$TEST_ROOT/outside-rootfs.conf" "$FIXTURE_HOME/from-rootfs.conf"
   [ "$status" -ne 0 ]
-  [[ "$output" == *"outside $FIXTURE_ROOT"* ]]
+  has_output "outside $FIXTURE_ROOT"
   [ ! -e "$FIXTURE_HOME/from-rootfs.conf" ]
 }
 
@@ -396,11 +389,11 @@ assert_secrets_hint() {
 
   run booty status
   [ "$status" -ne 0 ]
-  [[ "$output" == *"missing public checkout"* ]]
+  has_output "missing public checkout"
 }
 
 @test "booty rejects unsupported commands" {
   run booty checkout -b risky
   [ "$status" -ne 0 ]
-  [[ "$output" == *"unsupported command 'checkout'"* ]]
+  has_output "unsupported command 'checkout'"
 }
