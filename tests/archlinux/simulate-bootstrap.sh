@@ -42,10 +42,14 @@ pacman -Sy --noconfirm --needed git sudo >/dev/null 2>&1
 
 sim_repo=/tmp/sim-booty
 build_sim_repo "$sim_repo"
+printf '\nInclude = /etc/pacman.d/bootystrap\n' >> /etc/pacman.conf
+: > /etc/pacman.d/bootystrap
 env BOOTSTRAP_USER=ci BOOTY_HOST=ci BOOTY_REPO_URL="file://$sim_repo" BOOTSTRAP_SKIP_REFLECTOR=1 \
   bash /work/install
 
 check "bootstrap created ci user" id -u ci
+check "bootstrap adds exact pacman include beside legacy prefix" \
+  grep -qxF "Include = /etc/pacman.d/booty" /etc/pacman.conf
 check "booty symlink is absent" test ! -e /usr/local/bin/booty
 check "booty resolves from login PATH" sudo -H -u ci bash -lc 'command -v booty | grep -q "^/home/ci/.booty/booty/bin/booty$"'
 check "booty status exits 0 as ci user" sudo -H -u ci bash -lc 'booty status'

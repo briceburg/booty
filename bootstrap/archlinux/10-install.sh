@@ -1,4 +1,4 @@
-grep -qF "Include = /etc/pacman.d/booty" /etc/pacman.conf ||
+grep -qxF "Include = /etc/pacman.d/booty" /etc/pacman.conf ||
   printf '\nInclude = /etc/pacman.d/booty\n' >> /etc/pacman.conf
 
 : > /etc/pacman.d/booty
