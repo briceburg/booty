@@ -8,6 +8,7 @@ enabled_features:
   - virt
   - printing
   - intel-arc
+  - steam # adds multilib and lib32-vulkan-intel ;(
 
 features:
   printing:
@@ -21,7 +22,6 @@ features:
       - vpl-gpu-rt
       - vulkan-intel
       - vulkan-tools
-
 pacman:
   - input-leap
 
