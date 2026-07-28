@@ -669,9 +669,9 @@ class App:
     def status(self, args: list[str]) -> int:
         repo = self.require_current_repo()
         self.warn_empty_secrets()
-        view = self.command_view()
+        view = ManagedView(self.command_view().repos, repo)
         live_changes = []
-        files = self.select_managed(args, view)
+        files = [file for file in self.select_managed(args, view) if file.source is None or file.source.repo == repo]
         for file in files:
             target, source = file.target, file.source
             if source:

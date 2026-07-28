@@ -59,6 +59,21 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
   [ -z "$output" ]
 }
 
+@test "public status ignores secrets-owned live changes" {
+  writef "$FIXTURE_SECRETS" "dotfiles/archlinux/rootfs/home/nesta/.aws/config" secret
+  secrets pull >/dev/null
+  writef "$FIXTURE_HOME" ".aws/config" changed-secret
+
+  run "$BOOTY_ROOT/bin/booty" status
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"nothing to commit, managed files clean"* ]]
+  [[ "$output" != *".aws/config"* ]]
+
+  run secrets status
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"modified:   .aws/config"* ]]
+}
+
 @test "booty-secrets status handles legacy combined applied state" {
   secrets pull >/dev/null
   rm "$FIXTURE_STATE/booty/secrets.home.paths" "$FIXTURE_STATE/booty/secrets.system.paths"

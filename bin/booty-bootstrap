@@ -195,7 +195,9 @@ bootstrap_apply_rootfs(){
       "$user_home/.local" \
       "$user_home/.local/share" \
       "$user_home/.local/share/booty" \
-      "$user_home/.local/share/booty/system.paths"
+      "$user_home/.local/share/booty/system.paths" \
+      "$user_home/.local/share/booty/public.system.paths" \
+      "$user_home/.local/share/booty/secrets.system.paths"
   fi
   BOOTSTRAP_ROOTFS_APPLIED=1
 }

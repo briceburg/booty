@@ -58,6 +58,7 @@ check "home dotfile owned by ci" owned_by /home/ci/.bashrc ci:ci
 check "user helper pulled executable" sudo -H -u ci test -x /home/ci/bin/create-secrets-remote
 check "system dotfile applied" test -f /etc/ci-test.conf
 check "system dotfile owned by root" owned_by /etc/ci-test.conf root:root
+check "public system state owned by ci" owned_by /home/ci/.local/share/booty/public.system.paths ci:ci
 chown ci:ci /etc/ci-test.conf
 check "booty apply restores system dotfile owner" ci_booty apply
 check "system dotfile owner restored" owned_by /etc/ci-test.conf root:root
