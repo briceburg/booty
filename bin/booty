@@ -341,7 +341,8 @@ class App:
         self.tmp_root = self.booty_home / "tmp" / f"booty.{os.getpid()}"
         self.public = Repo("public", self.booty_home / "booty", PUBLIC_CLI)
         self.secrets = Repo("secrets", self.booty_home / "booty-secrets", SECRETS_CLI)
-        self.current_repo = self.secrets if invoked_cli() == SECRETS_CLI else self.public
+        self.repos = (self.public, self.secrets)
+        self.current_repo = next(repo for repo in self.repos if repo.cli == invoked_cli())
         self.applied = AppliedPaths(self.data_home)
         self.areas = tuple(self.build_areas())
         os.environ["BOOTY_HOME"] = str(self.booty_home)
@@ -426,7 +427,7 @@ class App:
         return ManagedTarget(system, rel, absolute)
 
     def checked_out_repos(self) -> list[Repo]:
-        return [repo for repo in (self.public, self.secrets) if repo.checkout]
+        return [repo for repo in self.repos if repo.checkout]
 
     def effective_view(self, repos: Sequence[Repo] | None = None) -> ManagedView:
         return ManagedView(tuple(repos if repos is not None else self.checked_out_repos()))
@@ -500,18 +501,25 @@ class App:
         (rels.add if present else rels.discard)(target.rel)
         self.applied.write(target.area, rels, repo)
 
+    def mark_applied(self, target: ManagedTarget, repo: Repo) -> None:
+        self.update_applied(target, True, repo)
+        self.update_applied(target, True)
+
+    def apply_source(self, source: SourceFile, target: ManagedTarget) -> None:
+        self.copy_to_target(source.source, target)
+        self.mark_applied(target, source.repo)
+
     def refresh_target(self, target: ManagedTarget) -> None:
         repos = self.checked_out_repos()
         source = self.source_index(target.area, repos).get(target.rel)
         if source:
-            self.copy_to_target(source.source, target)
-            self.update_applied(target, True, source.repo)
-        elif self.target_exists(target):
+            self.apply_source(source, target)
+            return
+        if self.target_exists(target):
             self.remove_target(target)
-        if not source:
-            for repo in repos:
-                self.update_applied(target, False, repo)
-        self.update_applied(target, source is not None)
+        for repo in repos:
+            self.update_applied(target, False, repo)
+        self.update_applied(target, False)
 
     def managed_files(self, view: ManagedView) -> Iterable[ManagedFile]:
         for area, sources, applied in self.managed_areas(view):
@@ -838,8 +846,7 @@ class App:
             source = target.source_for(repo)
             self.copy_from_target(target, source)
             repo.git("add", "--", repo.rel(source))
-            self.update_applied(target, True, repo)
-            self.update_applied(target, True)
+            self.mark_applied(target, repo)
         for file in deleted:
             self.remove_source(file.target, file.source.source, repo)
         return 0
@@ -850,9 +857,7 @@ class App:
         repo = self.require_current_repo()
         for file in self.select_managed(args, self.command_view()):
             if file.source:
-                self.copy_to_target(file.source.source, file.target)
-                self.update_applied(file.target, True, file.source.repo)
-                self.update_applied(file.target, True)
+                self.apply_source(file.source, file.target)
             else:
                 self.update_applied(file.target, False, repo)
                 self.refresh_target(file.target)
@@ -905,9 +910,8 @@ class App:
         repo.git("rm", "-f", "--ignore-unmatch", "--", repo.rel(entry.source))
         repo.git("add", "--", repo.rel(dest_source))
         self.update_applied(src, False, repo)
-        self.update_applied(dst, True, repo)
         self.refresh_target(src)
-        self.update_applied(dst, True)
+        self.mark_applied(dst, repo)
         return 0
 
     def commit(self, args: list[str]) -> int:
