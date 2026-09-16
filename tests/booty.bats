@@ -248,8 +248,13 @@ assert_secrets_hint() {
 
   run booty status "$FIXTURE_ROOT/etc"
   [ "$status" -ne 0 ]
-  has_output "Live file changes:" "modified:   etc/example.conf"
+  has_output "Live file changes:" "modified:   $FIXTURE_ROOT/etc/example.conf"
   lacks_output ".bashrc"
+
+  run booty status "$FIXTURE_HOME/.bashrc"
+  [ "$status" -ne 0 ]
+  has_output "modified:   ~/.bashrc"
+  lacks_output "example.conf"
 
   run booty diff "$FIXTURE_ROOT/etc"
   [ "$status" -eq 0 ]
@@ -260,7 +265,7 @@ assert_secrets_hint() {
   mkdir "$FIXTURE_ROOT/etc/example.conf"
   run booty status
   [ "$status" -ne 0 ]
-  has_output "modified:   etc/example.conf"
+  has_output "modified:   $FIXTURE_ROOT/etc/example.conf"
 }
 
 @test "booty commit writes target changes to the checkout" {
@@ -306,6 +311,15 @@ assert_secrets_hint() {
   [ ! -e "$FIXTURE_HOME/.config/glob/three.conf" ]
   [ -e "$FIXTURE_HOME/.config/glob/ignored.txt" ]
   [ ! -e "$FIXTURE_REPO/dotfiles/archlinux/rootfs/home/nesta/.config/glob/three.conf" ]
+}
+
+@test "booty add explains where unmatched relative paths resolve" {
+  work="$FIXTURE_HOME/git/foo"
+  mkdir -p "$work"
+
+  run bash -c "cd '$work' && '$BOOTY_ROOT/bin/booty' add .config"
+  [ "$status" -ne 0 ]
+  has_output "pathspec did not match any files" "'.config' resolved to '$work/.config'"
 }
 
 @test "booty add routes absolute system paths to host system dotfiles" {

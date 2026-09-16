@@ -521,7 +521,7 @@ class App:
                 matches = [file for file in files if file.target.path.is_relative_to(path)]
             if not matches:
                 if required:
-                    fail(f"pathspec '{spec}' did not match any managed files")
+                    fail(f"pathspec '{spec}' resolved to '{path}' and did not match any managed files")
                 continue
             for file in matches:
                 selected.setdefault((file.target.area.name, file.target.rel), file)
@@ -705,7 +705,11 @@ class App:
         self.warn_empty_secrets()
         view = ManagedView(self.command_view().repos, repo)
         files = [file for file in self.select_managed(args, view) if file.source is None or file.source.repo == repo]
-        live_changes = [(label, file.target.rel) for file in files if (label := self.live_change(file)) is not None]
+        live_changes = [
+            (label, self.short_path(file.target.path))
+            for file in files
+            if (label := self.live_change(file)) is not None
+        ]
         checkout_changes = self.checkout_changes(repo, files, bool(args))
         branch = repo.git("branch", "--show-current", capture=True, stderr=subprocess.DEVNULL).stdout.decode().strip()
         if branch:
@@ -807,7 +811,8 @@ class App:
             if file.source and file.source.repo == repo and not self.target_exists(file.target)
         ]
         if not targets and not deleted:
-            fail("pathspec did not match any files")
+            details = "\n".join(f"  '{spec}' resolved to '{logical_path(spec)}'" for spec in args)
+            fail(f"pathspec did not match any files:\n{details}")
         for target in targets:
             source = target.source_for(repo)
             self.copy_from_target(target, source)

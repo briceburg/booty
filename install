@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 
-repo_url="${BOOTY_REPO_URL:-https://github.com/briceburg/booty.git}"
+repo_url="${BOOTSTRAP_REPO_URL:-${BOOTY_REPO_URL:-https://github.com/briceburg/booty.git}}"
 
 command -v git >/dev/null || { echo "git is required" >&2; exit 1; }
 

@@ -57,6 +57,7 @@ yaml(){ yq eval -r "$2 | select(. != null and . != \"\")" "$1" 2>/dev/null; }
 
 BOOTSTRAP_ENV=(
   BOOTSTRAP_CONFIG_DIR
+  BOOTSTRAP_REPO_URL
   BOOTSTRAP_ROOT
   BOOTSTRAP_SKIP_REFLECTOR
   BOOTSTRAP_USER
@@ -213,6 +214,7 @@ usage: booty-bootstrap [bootstrap|config|help]
 Bootstraps this machine with $BOOTSTRAP_ROOT.
 BOOTSTRAP_USER selects the dotfile/OS user.
 BOOTY_REPO_URL is required unless user config defines repo_url.
+BOOTSTRAP_REPO_URL optionally seeds the managed checkout without changing its upstream.
 EOF
     exit 0
     ;;
@@ -256,4 +258,8 @@ source_bootstrap "$BOOTSTRAP_ROOT/hosts/$BOOTY_HOST.sh"
 
 log "running booty sync as $BOOTSTRAP_USER"
 BOOTY_SKIP_ROOTFS=1 as_user "$BOOTSTRAP_USER" "$BOOTY_HOME/booty/bin/booty" sync
+if command -v gpgconf >/dev/null; then
+  log "reloading GPG agent as $BOOTSTRAP_USER"
+  as_user "$BOOTSTRAP_USER" gpgconf --reload gpg-agent
+fi
 log "[OK] Bootstrap Complete"

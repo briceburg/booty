@@ -61,8 +61,8 @@ as_user "$BOOTSTRAP_USER" mkdir -p "$BOOTY_HOME" "$BOOTY_HOME/tmp" "$user_home/b
 log "wrote booty runtime config: $BOOTY_HOME/config"
 
 if [ ! -d "$BOOTY_HOME/booty/.git" ]; then
-  log "cloning target checkout: $BOOTY_REPO_URL -> $BOOTY_HOME/booty"
-  as_user "$BOOTSTRAP_USER" git clone "$BOOTY_REPO_URL" "$BOOTY_HOME/booty"
+  log "cloning target checkout: $BOOTSTRAP_REPO_URL -> $BOOTY_HOME/booty"
+  as_user "$BOOTSTRAP_USER" git clone "$BOOTSTRAP_REPO_URL" "$BOOTY_HOME/booty"
 fi
 
 export BOOTSTRAP_TARGET_READY=1
