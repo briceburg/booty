@@ -90,7 +90,7 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
 
   run secrets status
   [ "$status" -ne 0 ]
-  has_output "modified:   .aws/config"
+  has_output "modified:   ~/.aws/config"
 }
 
 @test "public sync refuses to overwrite secrets-owned live changes" {
@@ -134,7 +134,7 @@ secrets() { "$BOOTY_ROOT/bin/booty-secrets" "$@"; }
   [ "$status" -ne 0 ]
   has_output \
     "Live file changes:" \
-    "added:      .config/app.conf" \
+    "added:      ~/.config/app.conf" \
     'use "booty-secrets restore <file>..."'
 
   run secrets restore "$FIXTURE_HOME/.config/app.conf"

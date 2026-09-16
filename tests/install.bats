@@ -23,6 +23,22 @@ setup_install_remote() {
   [ "$(cat "$TEST_ROOT/marker")" = "BOOTY_HOME=$home/.booty" ]
 }
 
+@test "install can seed from a bootstrap URL without replacing the upstream" {
+  setup_install_remote 'printf "%s\n%s\n" "$BOOTSTRAP_REPO_URL" "$BOOTY_REPO_URL" > "$INSTALL_MARKER"'
+  git_commit_all "$remote" seed
+
+  run env \
+    HOME="$home" \
+    BOOTSTRAP_REPO_URL="file://$remote" \
+    BOOTY_REPO_URL=https://example.invalid/booty.git \
+    INSTALL_MARKER="$TEST_ROOT/marker" \
+    "$TEST_REPO/install"
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$home/.booty/booty" remote get-url origin)" = "file://$remote" ]
+  [ "$(sed -n '1p' "$TEST_ROOT/marker")" = "file://$remote" ]
+  [ "$(sed -n '2p' "$TEST_ROOT/marker")" = https://example.invalid/booty.git ]
+}
+
 @test "install updates existing checkout before bootstrap" {
   setup_install_remote 'echo old > "$INSTALL_MARKER"'
   git_commit_all "$remote" old

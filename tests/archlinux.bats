@@ -21,6 +21,7 @@ arch_config() {
   run arch_config plain
   [ "$status" -eq 0 ]
   has_output \
+    'declare -x BOOTSTRAP_REPO_URL="file:///tmp/booty"' \
     'declare -x BOOTY_REPO_URL="file:///tmp/booty"' \
     'declare -x BOOTY_SECRETS_URL="gcrypt::file:///tmp/booty-secrets"' \
     'declare -x BOOTSTRAP_CMD="config"' \
@@ -32,6 +33,14 @@ arch_config() {
     'declare -a BOOTSTRAP_USER_SERVICES=([0]="pipewire.socket")'
   lacks_output "lib32-mesa"
   [ -f "$BOOTSTRAP_CONFIG_DIR/archlinux.yaml" ]
+}
+
+@test "archlinux config separates the bootstrap checkout from its upstream" {
+  run env BOOTSTRAP_REPO_URL=file:///tmp/booty-source BOOTY_HOST=plain "$BOOTY_ROOT/bin/booty-bootstrap" config
+  [ "$status" -eq 0 ]
+  has_output \
+    'declare -x BOOTSTRAP_REPO_URL="file:///tmp/booty-source"' \
+    'declare -x BOOTY_REPO_URL="file:///tmp/booty"'
 }
 
 @test "archlinux config enables multilib from feature config" {

@@ -20,6 +20,7 @@ contains_text() { grep -qF "$2" "$1"; }
 lacks_text() { ! grep -qF "$2" "$1"; }
 owned_by() { [ "$(stat -c '%U:%G' "$1")" = "$2" ]; }
 git_id() { git -C "$1" config user.email ci@localhost; git -C "$1" config user.name CI; }
+remote_is() { [ "$(sudo -H -u ci git -C "$1" remote get-url origin)" = "$2" ]; }
 copy_tree() { mkdir -p "$2"; cp -r "$1"/. "$2"/; }
 build_sim_repo() {
   local repo="$1"
@@ -41,10 +42,12 @@ FAILURES=0
 pacman -Sy --noconfirm --needed git sudo >/dev/null 2>&1
 
 sim_repo=/tmp/sim-booty
+seed_repo=/tmp/sim-booty-seed
 build_sim_repo "$sim_repo"
+git clone -q "$sim_repo" "$seed_repo"
 printf '\nInclude = /etc/pacman.d/bootystrap\n' >> /etc/pacman.conf
 : > /etc/pacman.d/bootystrap
-env BOOTSTRAP_USER=ci BOOTY_HOST=ci BOOTY_REPO_URL="file://$sim_repo" BOOTSTRAP_SKIP_REFLECTOR=1 \
+env BOOTSTRAP_USER=ci BOOTY_HOST=ci BOOTSTRAP_REPO_URL="file://$seed_repo" BOOTSTRAP_SKIP_REFLECTOR=1 \
   bash /work/install
 
 check "bootstrap created ci user" id -u ci
@@ -70,6 +73,7 @@ check "AUR checkout owned by ci" owned_by /home/ci/git/AUR/git-remote-gcrypt ci:
 check "AUR package installed by bootstrap" command -v git-remote-gcrypt
 check "runtime config writes canonical repo url" contains_text /home/ci/.booty/config "BOOTY_REPO_URL="
 check "runtime config does not leak bootstrap vars" lacks_text /home/ci/.booty/config "BOOTSTRAP_"
+check "managed checkout uses canonical upstream" remote_is /home/ci/.booty/booty "file://$sim_repo"
 check "bootstrap did not create legacy command sudoers" test ! -e /etc/sudoers.d/user-ci
 check "bootstrap did not create AUR sudoers" test ! -e /etc/sudoers.d/booty-bootstrap-aur-ci
 

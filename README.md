@@ -51,7 +51,7 @@ booty push
 
 Run `booty` as the user whose dotfiles you want to manage, usually your user. Syncing [system files](#system-files) may prompt for sudo.
 
-Commands that take paths use git-style pathspecs. `add` reads live files and recurses through named directories; `status`, `diff`, `restore`, `rm`, and `ls` operate on already-managed files. Quote globs you want `booty` to expand, for example `booty add '~/.config/*.toml'`.
+Commands that take paths use git-style pathspecs. `add` reads live files and recurses through named directories; `status`, `diff`, `restore`, `rm`, and `ls` operate on already-managed files. Status prints home files with a `~/` prefix so its paths work from any directory. Other relative inputs resolve from the current directory. Quote globs you want `booty` to expand, for example `booty add '~/.config/*.toml'`.
 
 In addition to the git interface, the [sync](#sync) and [gpg](#gpg) commands are available.
 
@@ -170,14 +170,16 @@ BOOTSTRAP_ROOT="$PWD/bootstrap/archlinux" ./bin/booty-bootstrap config
 
 `booty-bootstrap` defaults to `~/.booty/booty/bootstrap/$BOOTY_OS`. Set `BOOTSTRAP_ROOT` for development checkouts and `BOOTSTRAP_CONFIG_DIR` to redirect generated config.
 
-To bootstrap from a development checkout, point sync back at the local clone:
+To bootstrap from a development checkout, seed the managed checkout from the local clone while retaining the configured `repo_url` as its pull and push upstream:
 
 ```sh
 BOOTSTRAP_ROOT="$PWD/bootstrap/archlinux" \
-BOOTY_REPO_URL="file://$PWD" \
+BOOTSTRAP_REPO_URL="file://$PWD" \
 DEBUG=1 \
   ./bin/booty-bootstrap
 ```
+
+`BOOTY_REPO_URL` remains available when the local checkout should also become the persistent upstream.
 
 Set `BOOTSTRAP_SKIP_REFLECTOR=1` to skip Arch mirror rating in CI or throwaway containers.
 
