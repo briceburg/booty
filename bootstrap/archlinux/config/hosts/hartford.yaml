@@ -23,7 +23,7 @@ features:
       - vulkan-intel
       - vulkan-tools
 pacman:
-  - input-leap
+  - deskflow
 
 multilib:
   - lib32-vulkan-intel

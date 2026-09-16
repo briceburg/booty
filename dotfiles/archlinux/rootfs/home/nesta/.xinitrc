@@ -4,8 +4,10 @@
 
 case $(hostname) in
   hartford)
-    # start input-leaps
-    pgrep input-leaps || input-leaps --disable-crypto
+    # start Deskflow server
+    if ! pgrep -x deskflow-core >/dev/null; then
+      deskflow-core server &
+    fi
     ;;
   zb14x)
     # disable touchscreen
