@@ -24,6 +24,10 @@ features:
       - vulkan-tools
 pacman:
   - deskflow
+  - tailscale
+
+services:
+  - tailscaled.service
 
 multilib:
   - lib32-vulkan-intel

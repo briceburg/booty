@@ -159,6 +159,20 @@ bootstrap/$OS/users/$user.sh
 
 Numbered OS scripts should prepare packages, create/configure `BOOTSTRAP_USER`, ensure `BOOTY_HOME/booty` exists for that user, then export `BOOTSTRAP_TARGET_READY=1`. `booty-bootstrap` applies rootfs once that target checkout is ready.
 
+### Hartford Tailscale
+
+The Hartford bootstrap installs `tailscale`, enables `tailscaled.service`, and
+applies route and DNS preferences. On first setup, run the following command
+and complete browser sign-in:
+
+```sh
+sudo tailscale up --accept-routes=true --accept-dns=true
+```
+
+Pass both flags on first sign-in to keep route and DNS acceptance enabled.
+Tailscale stores the host identity in `/var/lib/tailscale`. Later bootstraps
+reapply the preferences without repeating enrollment.
+
 ## Development
 
 Run from a checkout without installing:
