@@ -1,6 +1,10 @@
 if systemctl is-active --quiet tailscaled.service; then
-  # Browser enrollment is a separate step so bootstrap can run unattended.
   tailscale set --accept-routes=true --accept-dns=true
+
+  if tailscale status --json | jq -e '.BackendState == "NeedsLogin"' >/dev/null; then
+    log "Tailscale needs browser sign-in. After bootstrap, run:"
+    log "  sudo tailscale up --accept-routes=true --accept-dns=true"
+  fi
 else
   log "skipping Tailscale preferences: tailscaled.service is not active"
 fi
